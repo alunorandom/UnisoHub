@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields: uid, name, email, bio, skills, strengths, photoURL
+    //
+    // Collection: classes
+    // Document ID: {classId}
+    // Fields: id, name, code, creatorId, createdAt
+    //
+    // Collection: groups
+    // Document ID: {groupId}
+    // Fields: id, classId, name, description, creatorId, members, maxMembers, createdAt
+    //
+    // Collection: applications
+    // Document ID: {appId}
+    // Fields: id, groupId, applicantId, status, message, createdAt
+    //
+    // Collection: messages
+    // Document ID: {msgId}
+    // Fields: id, groupId, senderId, senderName, text, createdAt
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isGroupMember(groupId) {
+      return isAuthenticated() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'name', 'email']) &&
+             data.uid is string &&
+             data.name is string && data.name.size() < 100 &&
+             data.email is string;
+    }
+
+    function isValidClass(data) {
+      return data.keys().hasAll(['id', 'name', 'code', 'creatorId']) &&
+             data.name is string && data.name.size() < 100 &&
+             data.code is string && data.code.size() < 20;
+    }
+
+    function isValidGroup(data) {
+      return data.keys().hasAll(['id', 'classId', 'name', 'creatorId', 'members']) &&
+             data.name is string && data.name.size() < 100 &&
+             data.members is list;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'groupId', 'senderId', 'text']) &&
+             data.text is string && data.text.size() < 2000;
+    }
+
+    function isValidApplication(data) {
+      return data.keys().hasAll(['id', 'groupId', 'applicantId', 'status']) &&
+             data.status in ['pending', 'accepted', 'rejected'];
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isOwner(uid) && isValidUser(request.resource.data);
+    }
+
+    match /classes/{classId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidClass(request.resource.data);
+    }
+
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidGroup(request.resource.data);
+      allow update: if isAuthenticated() && (
+        // Creator can update group info
+        (request.auth.uid == resource.data.creatorId && isValidGroup(request.resource.data)) ||
+        // Members can be added via application logic (this is simplified, ideally we'd check more)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members']))
+      );
+    }
+
+    match /applications/{appId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.applicantId ||
+        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.creatorId
+      );
+      allow create: if isAuthenticated() && isValidApplication(request.resource.data) && request.auth.uid == request.resource.data.applicantId;
+      allow update: if isAuthenticated() && (
+        // Creator of group can accept/reject
+        request.auth.uid == get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.creatorId
+      );
+    }
+
+    match /messages/{msgId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(resource.data.groupId)).data.members
+      );
+      allow create: if isAuthenticated() && isValidMessage(request.resource.data) &&
+                    request.auth.uid == request.resource.data.senderId &&
+                    request.auth.uid in get(/databases/$(database)/documents/groups/$(request.resource.data.groupId)).data.members;
+    }
+
+    match /quizzes/{quizId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+      allow update, delete: if isAuthenticated() && (resource.data.creatorId == request.auth.uid);
+    }
+
+    match /quizSubmissions/{submissionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated();
+    }
+  }
+}
