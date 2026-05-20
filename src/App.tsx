@@ -19,8 +19,11 @@ const Sidebar = ({ user, profile, isDark, toggleTheme }: { user: any, profile: U
   const navigate = useNavigate();
 
   const handleSignOut = async () => {
+    localStorage.removeItem('unisohub_guest_uid');
+    localStorage.removeItem('unisohub_guest_name');
     await signOut(auth);
     navigate('/');
+    window.location.reload();
   };
 
   const NavItem = ({ to, icon: Icon, label }: { to: string, icon: any, label: string }) => (
@@ -1837,19 +1840,41 @@ const Home = ({ user }: { user: any }) => {
           className="pt-8"
         >
           {user ? (
-            <Link
-              to="/classes"
-              className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
-            >
-              Ver Minhas Salas <ArrowLeft className="h-6 w-6 rotate-180" />
-            </Link>
+            <div className="flex flex-col items-center gap-4">
+              <Link
+                to="/classes"
+                className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
+              >
+                Entrar no UnisoHub <ArrowLeft className="h-6 w-6 rotate-180" />
+              </Link>
+              {user.isAnonymous && (
+                <div className="text-sm font-medium text-gray-400 dark:text-gray-500 flex flex-col sm:flex-row items-center gap-2 mt-4">
+                  <span>Modo Convidado Ativo ({user.displayName})</span>
+                  <span className="hidden sm:inline">•</span>
+                  <button
+                    onClick={() => signInWithPopup(auth, googleProvider)}
+                    className="text-blue-600 dark:text-blue-400 font-extrabold hover:underline"
+                  >
+                    Vincular Conta Google para salvar permanentemente
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (
-            <button
-              onClick={() => signInWithPopup(auth, googleProvider)}
-              className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
-            >
-              Começar Agora <LogIn className="h-6 w-6" />
-            </button>
+            <div className="flex flex-col items-center gap-4">
+              <Link
+                to="/classes"
+                className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
+              >
+                Entrar como Convidado <ArrowLeft className="h-6 w-6 rotate-180" />
+              </Link>
+              <button
+                onClick={() => signInWithPopup(auth, googleProvider)}
+                className="bg-gray-100 dark:bg-zinc-800 text-black dark:text-white border border-gray-205 dark:border-zinc-700 px-6 py-3 rounded-2xl text-sm font-bold hover:bg-gray-200"
+              >
+                Entrar com o Google
+              </button>
+            </div>
           )}
         </motion.div>
       </div>
@@ -1905,8 +1930,8 @@ export default function App() {
 
   useEffect(() => {
     return onAuthStateChanged(auth, async u => {
-      setUser(u);
       if (u) {
+        setUser(u);
         const s = await getDoc(doc(db, 'users', u.uid));
         if (s.exists()) {
           setProfile({ uid: s.id, ...s.data() } as UserProfile);
@@ -1923,10 +1948,52 @@ export default function App() {
           await setDoc(doc(db, 'users', u.uid), newProfile);
           setProfile(newProfile);
         }
+        setLoading(false);
       } else {
-        setProfile(null);
+        // Sem login? Cria/restaura um usuário convidado (Guest) automático e persistente!
+        let guestUid = localStorage.getItem('unisohub_guest_uid');
+        let guestName = localStorage.getItem('unisohub_guest_name');
+        if (!guestUid) {
+          guestUid = 'convidado_' + Math.random().toString(36).substring(2, 11);
+          localStorage.setItem('unisohub_guest_uid', guestUid);
+        }
+        if (!guestName) {
+          guestName = `Estudante #${Math.floor(1000 + Math.random() * 9000)}`;
+          localStorage.setItem('unisohub_guest_name', guestName);
+        }
+
+        const guestUserObj = {
+          uid: guestUid,
+          isAnonymous: true,
+          displayName: guestName,
+          email: 'convidado@unisohub.com',
+          photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${guestUid}`
+        };
+
+        setUser(guestUserObj);
+
+        try {
+          const s = await getDoc(doc(db, 'users', guestUid));
+          if (s.exists()) {
+            setProfile({ uid: s.id, ...s.data() } as UserProfile);
+          } else {
+            const newProfile: UserProfile = {
+              uid: guestUid,
+              name: guestName,
+              email: guestUserObj.email,
+              photoURL: guestUserObj.photoURL,
+              rpgStats: DEFAULT_STATS,
+              rpgSkills: DEFAULT_SKILLS,
+              isProfessor: false
+            };
+            await setDoc(doc(db, 'users', guestUid), newProfile);
+            setProfile(newProfile);
+          }
+        } catch (err) {
+          console.error("Erro ao ler/escrever perfil do convidado:", err);
+        }
+        setLoading(false);
       }
-      setLoading(false);
     });
   }, []);
 
