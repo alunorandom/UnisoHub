@@ -1,0 +1,117 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Perfil do aluno com habilidades e pontos fortes.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "bio": { "type": "string" },
+        "skills": { "type": "string" },
+        "strengths": { "type": "string" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["uid", "name", "email"]
+    },
+    "Class": {
+      "title": "Subject Class",
+      "description": "Sala de uma matéria específica.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "Group": {
+      "title": "Study Group",
+      "description": "Grupo de trabalho dentro de uma matéria.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "maxMembers": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classId", "name", "creatorId", "members"]
+    },
+    "Application": {
+      "title": "Group Application",
+      "description": "Pedido de entrada em um grupo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupId": { "type": "string" },
+        "applicantId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "applicantId", "status"]
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "Mensagem de texto do chat do grupo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "senderId", "text"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Quiz criado por um professor com perguntas de múltipla escolha.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "classId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "classId", "creatorId", "questions"]
+    },
+    "QuizSubmission": {
+      "title": "Quiz Submission",
+      "description": "Submissão de respostas de um aluno para um quiz.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "quizId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "answers": { "type": "array" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "quizId", "studentId", "answers", "score", "totalQuestions"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "Perfis de usuários." },
+    "/classes/{classId}": { "schema": "Class", "description": "Salas de matérias." },
+    "/groups/{groupId}": { "schema": "Group", "description": "Grupos de trabalho." },
+    "/applications/{appId}": { "schema": "Application", "description": "Pedidos de entrada." },
+    "/messages/{msgId}": { "schema": "Message", "description": "Mensagens do chat." },
+    "/quizzes/{quizId}": { "schema": "Quiz", "description": "Quizzes criados por professores." },
+    "/quizSubmissions/{submissionId}": { "schema": "QuizSubmission", "description": "Respostas dos alunos para os quizzes." }
+  }
+}
