@@ -18,10 +18,13 @@ function cn(...inputs: ClassValue[]) {
 const Sidebar = ({ user, profile, isDark, toggleTheme }: { user: any, profile: UserProfile | null, isDark: boolean, toggleTheme: () => void }) => {
   const navigate = useNavigate();
 
-  const handleSignOut = async () => {
+  const handleSignOut = () => {
     localStorage.removeItem('unisohub_guest_uid');
     localStorage.removeItem('unisohub_guest_name');
-    await signOut(auth);
+    localStorage.removeItem('unisohub_profile');
+    try {
+      signOut(auth);
+    } catch (e) {}
     navigate('/');
     window.location.reload();
   };
@@ -108,7 +111,7 @@ const Sidebar = ({ user, profile, isDark, toggleTheme }: { user: any, profile: U
               className="w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-all font-bold"
             >
               <LogOut className="h-5 w-5" />
-              <span>Sair</span>
+              <span>Reiniciar Perfil</span>
             </button>
           </div>
         ) : (
@@ -304,7 +307,13 @@ const Profile = ({ user, profile, setProfile }: { user: any, profile: UserProfil
     e.preventDefault();
     if (!user) return;
     const updated = { ...profile, ...formData, uid: user.uid, email: user.email };
-    await setDoc(doc(db, 'users', user.uid), updated);
+    localStorage.setItem('unisohub_profile', JSON.stringify(updated));
+    localStorage.setItem('unisohub_guest_name', updated.name);
+    try {
+      await setDoc(doc(db, 'users', user.uid), updated);
+    } catch (err) {
+      console.warn("Soft Firestore registration skipped (expected offline/local):", err);
+    }
     setProfile(updated);
     setEditing(false);
   };
@@ -1839,43 +1848,14 @@ const Home = ({ user }: { user: any }) => {
           transition={{ delay: 0.3 }}
           className="pt-8"
         >
-          {user ? (
-            <div className="flex flex-col items-center gap-4">
-              <Link
-                to="/classes"
-                className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
-              >
-                Entrar no UnisoHub <ArrowLeft className="h-6 w-6 rotate-180" />
-              </Link>
-              {user.isAnonymous && (
-                <div className="text-sm font-medium text-gray-400 dark:text-gray-500 flex flex-col sm:flex-row items-center gap-2 mt-4">
-                  <span>Modo Convidado Ativo ({user.displayName})</span>
-                  <span className="hidden sm:inline">•</span>
-                  <button
-                    onClick={() => signInWithPopup(auth, googleProvider)}
-                    className="text-blue-600 dark:text-blue-400 font-extrabold hover:underline"
-                  >
-                    Vincular Conta Google para salvar permanentemente
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-4">
-              <Link
-                to="/classes"
-                className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
-              >
-                Entrar como Convidado <ArrowLeft className="h-6 w-6 rotate-180" />
-              </Link>
-              <button
-                onClick={() => signInWithPopup(auth, googleProvider)}
-                className="bg-gray-100 dark:bg-zinc-800 text-black dark:text-white border border-gray-205 dark:border-zinc-700 px-6 py-3 rounded-2xl text-sm font-bold hover:bg-gray-200"
-              >
-                Entrar com o Google
-              </button>
-            </div>
-          )}
+          <div className="flex flex-col items-center gap-4">
+            <Link
+              to="/classes"
+              className="bg-blue-600 text-white px-12 py-6 rounded-3xl text-xl font-black hover:bg-blue-700 transition-all shadow-2xl shadow-blue-200 inline-flex items-center gap-3"
+            >
+              Começar Agora <ArrowLeft className="h-6 w-6 rotate-180" />
+            </Link>
+          </div>
         </motion.div>
       </div>
 
@@ -1907,9 +1887,50 @@ const Home = ({ user }: { user: any }) => {
 // --- Main App ---
 
 export default function App() {
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(() => {
+    let guestUid = localStorage.getItem('unisohub_guest_uid');
+    let guestName = localStorage.getItem('unisohub_guest_name');
+    if (!guestUid) {
+      guestUid = 'convidado_' + Math.random().toString(36).substring(2, 11);
+      localStorage.setItem('unisohub_guest_uid', guestUid);
+    }
+    if (!guestName) {
+      guestName = `Estudante #${Math.floor(1000 + Math.random() * 9000)}`;
+      localStorage.setItem('unisohub_guest_name', guestName);
+    }
+    return {
+      uid: guestUid,
+      isAnonymous: true,
+      displayName: guestName,
+      email: 'convidado@unisohub.com',
+      photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${guestUid}`
+    };
+  });
+
+  const [profile, setProfile] = useState<UserProfile | null>(() => {
+    const guestUid = localStorage.getItem('unisohub_guest_uid') || 'convidado_temp';
+    const guestName = localStorage.getItem('unisohub_guest_name') || 'Estudante';
+    const saved = localStorage.getItem('unisohub_profile');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.uid) return parsed;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    return {
+      uid: guestUid,
+      name: guestName,
+      email: 'convidado@unisohub.com',
+      photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${guestUid}`,
+      rpgStats: DEFAULT_STATS,
+      rpgSkills: DEFAULT_SKILLS,
+      isProfessor: false
+    };
+  });
+
+  const [loading, setLoading] = useState(false);
   const [isDark, setIsDark] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('theme');
@@ -1929,72 +1950,28 @@ export default function App() {
   }, [isDark]);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, async u => {
-      if (u) {
-        setUser(u);
-        const s = await getDoc(doc(db, 'users', u.uid));
-        if (s.exists()) {
-          setProfile({ uid: s.id, ...s.data() } as UserProfile);
-        } else {
-          const newProfile: UserProfile = {
-            uid: u.uid,
-            name: u.displayName || 'Aluno',
-            email: u.email || '',
-            photoURL: u.photoURL || '',
-            rpgStats: DEFAULT_STATS,
-            rpgSkills: DEFAULT_SKILLS,
-            isProfessor: false
-          };
-          await setDoc(doc(db, 'users', u.uid), newProfile);
-          setProfile(newProfile);
-        }
-        setLoading(false);
-      } else {
-        // Sem login? Cria/restaura um usuário convidado (Guest) automático e persistente!
-        let guestUid = localStorage.getItem('unisohub_guest_uid');
-        let guestName = localStorage.getItem('unisohub_guest_name');
-        if (!guestUid) {
-          guestUid = 'convidado_' + Math.random().toString(36).substring(2, 11);
-          localStorage.setItem('unisohub_guest_uid', guestUid);
-        }
-        if (!guestName) {
-          guestName = `Estudante #${Math.floor(1000 + Math.random() * 9000)}`;
-          localStorage.setItem('unisohub_guest_name', guestName);
-        }
-
-        const guestUserObj = {
-          uid: guestUid,
-          isAnonymous: true,
-          displayName: guestName,
-          email: 'convidado@unisohub.com',
-          photoURL: `https://api.dicebear.com/7.x/pixel-art/svg?seed=${guestUid}`
-        };
-
-        setUser(guestUserObj);
-
+    // Sync guest profile dynamically and non-blockingly with Firestore if possible
+    const syncProfile = async () => {
+      if (profile && profile.uid) {
         try {
-          const s = await getDoc(doc(db, 'users', guestUid));
-          if (s.exists()) {
-            setProfile({ uid: s.id, ...s.data() } as UserProfile);
+          const s = await getDoc(doc(db, 'users', profile.uid));
+          if (!s.exists()) {
+            await setDoc(doc(db, 'users', profile.uid), profile);
           } else {
-            const newProfile: UserProfile = {
-              uid: guestUid,
-              name: guestName,
-              email: guestUserObj.email,
-              photoURL: guestUserObj.photoURL,
-              rpgStats: DEFAULT_STATS,
-              rpgSkills: DEFAULT_SKILLS,
-              isProfessor: false
-            };
-            await setDoc(doc(db, 'users', guestUid), newProfile);
-            setProfile(newProfile);
+            // Keep state aligned if there are cloud changes
+            const cloudData = s.data();
+            if (cloudData && cloudData.name !== profile.name) {
+              const merged = { ...profile, ...cloudData };
+              setProfile(merged as UserProfile);
+              localStorage.setItem('unisohub_profile', JSON.stringify(merged));
+            }
           }
-        } catch (err) {
-          console.error("Erro ao ler/escrever perfil do convidado:", err);
+        } catch (e) {
+          console.warn("Soft Firestore registration skipped (expected offline/local):", e);
         }
-        setLoading(false);
       }
-    });
+    };
+    syncProfile();
   }, []);
 
   if (loading) return <div className="h-screen flex items-center justify-center font-black text-blue-600 text-2xl animate-pulse">UnisoHub...</div>;
