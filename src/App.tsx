@@ -1,8 +1,8 @@
 import React, { useState, useEffect, Component, ErrorInfo, ReactNode } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useParams } from 'react-router-dom';
-import { auth, db, onAuthStateChanged, signInWithPopup, googleProvider, signOut, doc, getDoc, setDoc, onSnapshot, collection, query, where, orderBy, addDoc, serverTimestamp, updateDoc, arrayUnion } from './firebase';
-import { UserProfile, ClassRoom, Group, Application, Message, RPGStat } from './types';
-import { LogIn, LogOut, User as UserIcon, Users, MessageSquare, Plus, Search, Check, X, Send, ArrowLeft, BookOpen, AlertCircle, Flame, Zap, Wind, Brain, Smile, Dices, Code, Palette, PenTool, Hash, Shield, Sword, Trophy, Star, Skull, Crown, Map, Sun, Moon } from 'lucide-react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { auth, db, onAuthStateChanged, signInWithPopup, googleProvider, signOut, doc, getDoc, setDoc, onSnapshot, collection, query, where, orderBy, addDoc, serverTimestamp, updateDoc, arrayUnion, deleteDoc } from './firebase';
+import { UserProfile, ClassRoom, Group, Application, Message, RPGStat, ForumTopic, ForumReply, AcademicSummary, SummaryComment } from './types';
+import { LogIn, LogOut, User as UserIcon, Users, MessageSquare, Plus, Search, Check, X, Send, ArrowLeft, BookOpen, AlertCircle, Flame, Zap, Wind, Brain, Smile, Dices, Code, Palette, PenTool, Hash, Shield, Sword, Trophy, Star, Skull, Crown, Map, Sun, Moon, Trash2, QrCode, ThumbsUp, MessageCircle, ThumbsDown, FileText, Upload } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -56,7 +56,10 @@ const Sidebar = ({ user, profile, isDark, toggleTheme }: { user: any, profile: U
         {user && (
           <>
             <NavItem to="/classes" icon={BookOpen} label="Minhas Salas" />
+            <NavItem to="/my-groups" icon={Users} label="Meus Grupos" />
             <NavItem to="/quizzes" icon={Brain} label="Quizzes & Desafios" />
+            <NavItem to="/forum" icon={MessageCircle} label="Dúvidas & Fórum" />
+            <NavItem to="/summaries" icon={FileText} label="Resumos da Galera" />
             <NavItem to="/profile" icon={UserIcon} label="Meu Perfil" />
           </>
         )}
@@ -142,19 +145,19 @@ const MAX_ATTR_POINTS = 25;
 const MAX_SKILL_POINTS = 15;
 
 const DEFAULT_STATS: RPGStat[] = [
-  { name: 'Força', value: 1, icon: 'Sword' },
-  { name: 'Agilidade', value: 1, icon: 'Wind' },
-  { name: 'Inteligência', value: 1, icon: 'Brain' },
-  { name: 'Carisma', value: 1, icon: 'Smile' },
-  { name: 'Sorte', value: 1, icon: 'Dices' },
+  { name: 'Foco e Estudo', value: 1, icon: 'BookOpen' },
+  { name: 'Gestão de Tempo', value: 1, icon: 'Zap' },
+  { name: 'Raciocínio Crítico', value: 1, icon: 'Brain' },
+  { name: 'Trabalho em Equipe', value: 1, icon: 'Users' },
+  { name: 'Resiliência (Café)', value: 1, icon: 'Flame' },
 ];
 
 const DEFAULT_SKILLS: RPGStat[] = [
-  { name: 'Programação', value: 1, icon: 'Code' },
-  { name: 'Design', value: 1, icon: 'Palette' },
-  { name: 'Escrita', value: 1, icon: 'PenTool' },
-  { name: 'Matemática', value: 1, icon: 'Hash' },
-  { name: 'Pesquisa', value: 1, icon: 'Search' },
+  { name: 'Programação de Sistemas', value: 1, icon: 'Code' },
+  { name: 'Criatividade e Design', value: 1, icon: 'Palette' },
+  { name: 'Escrita Acadêmica', value: 1, icon: 'PenTool' },
+  { name: 'Cálculo e Estatística', value: 1, icon: 'Hash' },
+  { name: 'Pesquisa Científica', value: 1, icon: 'Search' },
 ];
 
 interface StatBarProps {
@@ -167,7 +170,7 @@ interface StatBarProps {
 }
 
 const StatBar: React.FC<StatBarProps> = ({ stat, onUpdate, onNameUpdate, onRemove, editing, max = 10 }) => {
-  const icons: any = { Zap, Wind, Brain, Smile, Dices, Code, Palette, PenTool, Hash, Shield, Sword, Trophy, Star, Search };
+  const icons: any = { Zap, Wind, Brain, Smile, Dices, Code, Palette, PenTool, Hash, Shield, Sword, Trophy, Star, Search, Flame, BookOpen, Users };
   const Icon = icons[stat.icon] || Star;
   
   return (
@@ -640,11 +643,45 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
   // Expanded panel state
   const [expandedQuizId, setExpandedQuizId] = useState<string | null>(null);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const quizIdParam = searchParams.get('quizId');
+  const [qrModalQuiz, setQrModalQuiz] = useState<Quiz | null>(null);
+
+  // Auto-open quiz from URL parameter
+  useEffect(() => {
+    if (quizIdParam && quizzes.length > 0) {
+      const found = quizzes.find(q => q.id === quizIdParam);
+      if (found && (!activeQuiz || activeQuiz.id !== quizIdParam)) {
+        setActiveQuiz(found);
+        setCurrentQuestIndex(0);
+        setCurrentAnswers([]);
+        setSelectedOpt(null);
+        setQuizResult(null);
+      }
+    }
+  }, [quizIdParam, quizzes]);
+
+  const handleCloseQuiz = () => {
+    setActiveQuiz(null);
+    setQuizResult(null);
+    if (searchParams.has('quizId')) {
+      const newParams = new URLSearchParams(searchParams);
+      newParams.delete('quizId');
+      setSearchParams(newParams);
+    }
+  };
+
   useEffect(() => {
     // Read classrooms
-    const qClasses = query(collection(db, 'classes'), orderBy('createdAt', 'desc'));
+    const qClasses = query(collection(db, 'classes'));
     const unsubClasses = onSnapshot(qClasses, snap => {
-      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom));
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? (typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime()) : 0;
+        const timeB = b.createdAt ? (typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime()) : 0;
+        return timeB - timeA;
+      });
+      setClasses(list);
     });
 
     // Read quizzes
@@ -706,7 +743,7 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
         creatorId: user.uid,
         creatorName: profile?.name || 'Professor',
         questions: questions,
-        createdAt: serverTimestamp()
+        createdAt: new Date()
       });
 
       // Reset everything
@@ -783,7 +820,7 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
             <button
               onClick={() => {
                 if (confirm('Deseja realmente sair do Quiz? Seu progresso será perdido.')) {
-                  setActiveQuiz(null);
+                  handleCloseQuiz();
                 }
               }}
               className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
@@ -860,7 +897,7 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                 </div>
 
                 <button
-                  onClick={() => setActiveQuiz(null)}
+                  onClick={handleCloseQuiz}
                   className="bg-black dark:bg-white text-white dark:text-black font-black px-10 py-4 rounded-xl hover:opacity-90 transition-all"
                 >
                   Voltar para Desafios
@@ -1107,25 +1144,43 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
 
                   <div className="mt-6 pt-4 border-t border-gray-100 dark:border-zinc-800 flex flex-col gap-2">
                     {!profile?.isProfessor ? (
-                      <button
-                        onClick={() => handleStartQuiz(q)}
-                        className={cn(
-                          "w-full text-center py-3 rounded-xl font-black text-sm transition-all shadow-md shadow-blue-105 dark:shadow-none",
-                          hasTaken 
-                            ? "bg-gray-100 dark:bg-zinc-800 text-gray-500 hover:bg-blue-50 hover:text-blue-600 border border-gray-200 dark:border-zinc-700"
-                            : "bg-blue-600 text-white hover:bg-blue-700"
-                        )}
-                      >
-                        {hasTaken ? "Responder Novamente" : "Resolver Desafio"}
-                      </button>
-                    ) : (
                       <div className="space-y-2">
                         <button
-                          onClick={() => setExpandedQuizId(expandedQuizId === q.id ? null : q.id)}
-                          className="w-full text-center py-2 rounded-xl text-xs font-black bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:opacity-90 transition-all block"
+                          onClick={() => handleStartQuiz(q)}
+                          className={cn(
+                            "w-full text-center py-3 rounded-xl font-black text-sm transition-all shadow-md shadow-blue-105 dark:shadow-none",
+                            hasTaken 
+                              ? "bg-gray-100 dark:bg-zinc-800 text-gray-500 hover:bg-blue-50 hover:text-blue-600 border border-gray-200 dark:border-zinc-700"
+                              : "bg-blue-600 text-white hover:bg-blue-700"
+                          )}
                         >
-                          {expandedQuizId === q.id ? "Fechar Submissões" : "Ver Notas dos Alunos"}
+                          {hasTaken ? "Responder Novamente" : "Resolver Desafio"}
                         </button>
+                        <button
+                          onClick={() => setQrModalQuiz(q)}
+                          className="w-full text-center py-2.5 rounded-xl text-xs font-black bg-gray-50 dark:bg-zinc-800/80 hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-650 dark:text-gray-350 border border-gray-200 dark:border-zinc-700/60 transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <QrCode className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                          <span>Gerar QR Code de Acesso</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => setExpandedQuizId(expandedQuizId === q.id ? null : q.id)}
+                            className="w-full text-center py-2.5 rounded-xl text-xs font-black bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:opacity-90 transition-all block"
+                          >
+                            {expandedQuizId === q.id ? "Fechar Notas" : "Ver Notas"}
+                          </button>
+                          <button
+                            onClick={() => setQrModalQuiz(q)}
+                            className="w-full text-center py-2.5 rounded-xl text-xs font-black bg-gray-50 dark:bg-zinc-800/80 hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-650 dark:text-gray-350 border border-gray-200 dark:border-zinc-700/60 transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <QrCode className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                            <span>QR Code</span>
+                          </button>
+                        </div>
 
                         {expandedQuizId === q.id && (
                           <div className="bg-purple-50/30 dark:bg-purple-950/20 p-4 rounded-2xl border border-purple-100/50 dark:border-purple-900/20 mt-2 space-y-2 text-xs">
@@ -1156,11 +1211,185 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
         )}
       </div>
 
+      {/* QR Code Sharing Modal */}
+      {qrModalQuiz && (
+        <div className="fixed inset-0 bg-black/85 flex items-center justify-center p-4 z-50">
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 max-w-md w-full border border-gray-100 dark:border-zinc-800 shadow-2xl relative text-center"
+          >
+            <button
+              onClick={() => setQrModalQuiz(null)}
+              className="absolute top-5 right-5 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 hover:text-black dark:hover:text-white transition-all"
+            >
+              <X className="h-6 w-6" />
+            </button>
+
+            <div className="mb-6 mt-2">
+              <div className="bg-blue-50 dark:bg-blue-900/15 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                <QrCode className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+              </div>
+              <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tighter leading-tight">
+                Acessar Quiz
+              </h2>
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-bold mt-1 px-4 leading-normal">
+                {qrModalQuiz.title}
+              </p>
+            </div>
+
+            {/* Generated QR Code Container */}
+            <div className="bg-gray-50 dark:bg-zinc-950 p-6 rounded-3xl inline-block border border-gray-100 dark:border-zinc-800/80 shadow-inner">
+              <img 
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+                  window.location.origin + "/quizzes?quizId=" + qrModalQuiz.id
+                )}`} 
+                alt="QR Code do Quiz" 
+                className="w-48 h-48 rounded-xl block mx-auto bg-white p-2"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+
+            <p className="text-[11px] font-bold text-gray-400 dark:text-gray-550 uppercase tracking-widest mt-5 mb-5">
+              Escaneie com a câmera do celular para responder!
+            </p>
+
+            <div className="text-center space-y-3">
+              <div className="bg-gray-50 dark:bg-zinc-800/50 p-3.5 rounded-xl flex items-center justify-between gap-3 text-left border border-gray-100 dark:border-zinc-800/60 w-full min-w-0">
+                <span className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate flex-1 block">
+                  {window.location.origin + "/quizzes?quizId=" + qrModalQuiz.id}
+                </span>
+                <button
+                  onClick={() => {
+                    const quizUrl = window.location.origin + "/quizzes?quizId=" + qrModalQuiz.id;
+                    navigator.clipboard.writeText(quizUrl);
+                    alert("Link do quiz copiado para a área de transferência!");
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer"
+                >
+                  Copiar Link
+                </button>
+              </div>
+
+              <button
+                onClick={() => setQrModalQuiz(null)}
+                className="w-full bg-black dark:bg-white text-white dark:text-black font-black py-3.5 rounded-2xl hover:opacity-95 transition-all text-sm uppercase tracking-wider cursor-pointer"
+              >
+                Voltar
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
     </div>
   );
 };
 
-const Classes = ({ user }: { user: any }) => {
+const MyGroups = ({ user }: { user: any }) => {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Read all classrooms
+    const qClasses = query(collection(db, 'classes'));
+    const unsubClasses = onSnapshot(qClasses, snap => {
+      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom)));
+    });
+
+    // Read groups that are containing our UID in members list
+    const qGroups = query(collection(db, 'groups'), where('members', 'array-contains', user.uid));
+    const unsubGroups = onSnapshot(qGroups, snap => {
+      setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() } as Group)));
+      setLoading(false);
+    });
+
+    return () => {
+      unsubClasses();
+      unsubGroups();
+    };
+  }, [user.uid]);
+
+  return (
+    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+      <div className="mb-12">
+        <h1 className="text-4xl font-black text-black dark:text-white tracking-tight mb-2 uppercase leading-none">⚔️ Meus Grupos</h1>
+        <p className="text-gray-500 dark:text-gray-400 font-medium">Equipes e grupos que você faz parte nas masmorras de conhecimento.</p>
+      </div>
+
+      {loading ? (
+        <div className="py-12 text-center text-gray-500 font-black text-lg animate-pulse">Buscando equipes...</div>
+      ) : groups.length === 0 ? (
+        <div className="bg-white dark:bg-zinc-900 text-center py-16 p-8 rounded-3xl border border-gray-100 dark:border-zinc-800 shadow-sm max-w-2xl mx-auto">
+          <div className="bg-blue-50 dark:bg-zinc-800 p-4 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-6">
+            <Users className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+          </div>
+          <h3 className="text-xl font-black text-black dark:text-white mb-2 uppercase">Nenhum Grupo Encontrado</h3>
+          <p className="text-gray-500 dark:text-gray-400 font-medium mb-6">Você ainda não entrou e nem criou nenhum grupo de trabalho.</p>
+          <button 
+            onClick={() => navigate('/classes')} 
+            className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition-all inline-flex items-center gap-2"
+          >
+            Navegar pelas Salas
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {groups.map(g => {
+            const matchedClass = classes.find(c => c.id === g.classId);
+            return (
+              <motion.div
+                key={g.id}
+                whileHover={{ y: -6, scale: 1.01 }}
+                onClick={() => navigate(`/group/${g.id}`)}
+                className="bg-white dark:bg-zinc-900 rounded-[2rem] border border-gray-100 dark:border-zinc-800 p-8 shadow-sm hover:shadow-xl transition-all group cursor-pointer flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="bg-blue-50 dark:bg-zinc-800 w-12 h-12 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 transition-colors">
+                      <Users className="h-6 w-6 text-blue-600 dark:text-blue-400 group-hover:text-white transition-colors" />
+                    </div>
+                    {matchedClass && (
+                      <span className="bg-blue-105 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full">
+                        {matchedClass.name}
+                      </span>
+                    )}
+                  </div>
+
+                  <h3 className="text-2xl font-black text-black dark:text-white leading-tight mb-2 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                    {g.name}
+                  </h3>
+                  {g.description && (
+                    <p className="text-gray-500 dark:text-gray-400 text-sm font-medium line-clamp-2 mb-6 leading-relaxed">
+                      {g.description}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-auto pt-6 border-t border-gray-50 dark:border-zinc-800/60 flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-black text-gray-400 dark:text-zinc-500 uppercase tracking-widest block leading-none">Membros</span>
+                    <span className="font-bold text-sm text-black dark:text-white">
+                      {g.members?.length || 0} / {g.maxMembers || 4}
+                    </span>
+                  </div>
+
+                  <button className="bg-gray-55 dark:bg-zinc-800 group-hover:bg-blue-600 p-2.5 rounded-xl group-hover:text-white text-blue-600 dark:text-blue-400 transition-all">
+                    <ArrowLeft className="h-4 w-4 rotate-180" />
+                  </button>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Classes = ({ user, profile }: { user: any, profile: UserProfile | null }) => {
   const [classes, setClasses] = useState<ClassRoom[]>([]);
   const [code, setCode] = useState('');
   const [newClassName, setNewClassName] = useState('');
@@ -1170,11 +1399,30 @@ const Classes = ({ user }: { user: any }) => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const q = query(collection(db, 'classes'), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'classes'));
     return onSnapshot(q, snap => {
-      setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as ClassRoom));
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? (typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime()) : 0;
+        const timeB = b.createdAt ? (typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime()) : 0;
+        return timeB - timeA;
+      });
+      setClasses(list);
     });
   }, []);
+
+  const handleDeleteClass = async (classId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Tem certeza de que deseja destruir esta masmorra? Todos os grupos nela criados também serão perdidos.')) {
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, 'classes', classId));
+      setClasses(prev => prev.filter(c => c.id !== classId));
+    } catch (err) {
+      console.error("Erro ao deletar sala:", err);
+    }
+  };
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1190,19 +1438,29 @@ const Classes = ({ user }: { user: any }) => {
     e.preventDefault();
     if (!newClassName) return;
     const newCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const docRef = await addDoc(collection(db, 'classes'), {
+    const newClassData = {
       name: newClassName,
       code: newCode,
       bossName: newBossName || 'Mestre Desconhecido',
       difficulty: newDifficulty,
       creatorId: user.uid,
-      createdAt: serverTimestamp()
-    });
-    setNewClassName('');
-    setNewBossName('');
-    setNewDifficulty(1);
-    setShowCreate(false);
-    navigate(`/class/${docRef.id}`);
+      createdAt: new Date()
+    };
+    
+    try {
+      const docRef = await addDoc(collection(db, 'classes'), newClassData);
+      
+      // Optimistic state insertion
+      setClasses(prev => [{ id: docRef.id, ...newClassData } as ClassRoom, ...prev]);
+      
+      setNewClassName('');
+      setNewBossName('');
+      setNewDifficulty(1);
+      setShowCreate(false);
+      navigate(`/class/${docRef.id}`);
+    } catch (err) {
+      console.error("Erro ao criar masmorra:", err);
+    }
   };
 
   return (
@@ -1319,16 +1577,27 @@ const Classes = ({ user }: { user: any }) => {
                 <div className="bg-blue-50 dark:bg-zinc-800 w-14 h-14 rounded-2xl flex items-center justify-center group-hover:bg-blue-600 transition-colors">
                   <Skull className="h-7 w-7 text-blue-600 dark:text-blue-400 group-hover:text-white transition-colors" />
                 </div>
-                <div className="flex gap-1">
-                  {[...Array(5)].map((_, i) => (
-                    <Skull 
-                      key={i} 
-                      className={cn(
-                        "h-4 w-4",
-                        i < (c.difficulty || 1) ? "text-red-500 fill-red-500" : "text-gray-200 dark:text-zinc-800"
-                      )} 
-                    />
-                  ))}
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Skull 
+                        key={i} 
+                        className={cn(
+                          "h-4 w-4",
+                          i < (c.difficulty || 1) ? "text-red-500 fill-red-500" : "text-gray-200 dark:text-zinc-800"
+                        )} 
+                      />
+                    ))}
+                  </div>
+                  {(c.creatorId === user.uid || profile?.isProfessor) && (
+                    <button
+                      onClick={(e) => handleDeleteClass(c.id, e)}
+                      className="text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/25 p-1.5 rounded-xl transition-all"
+                      title="Destruir Masmorra (Mestre)"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               
@@ -1357,7 +1626,7 @@ const Classes = ({ user }: { user: any }) => {
   );
 };
 
-const ClassDetail = ({ user }: { user: any }) => {
+const ClassDetail = ({ user, profile }: { user: any, profile: UserProfile | null }) => {
   const { classId } = useParams();
   const [classroom, setClassroom] = useState<ClassRoom | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -1369,11 +1638,30 @@ const ClassDetail = ({ user }: { user: any }) => {
     if (!classId) return;
     getDoc(doc(db, 'classes', classId)).then(s => setClassroom({ id: s.id, ...s.data() } as ClassRoom));
 
-    const q = query(collection(db, 'groups'), where('classId', '==', classId), orderBy('createdAt', 'desc'));
+    const q = query(collection(db, 'groups'), where('classId', '==', classId));
     return onSnapshot(q, snap => {
-      setGroups(snap.docs.map(d => ({ id: d.id, ...d.data() } as Group)));
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() } as Group));
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? (typeof a.createdAt.toDate === 'function' ? a.createdAt.toDate().getTime() : new Date(a.createdAt).getTime()) : 0;
+        const timeB = b.createdAt ? (typeof b.createdAt.toDate === 'function' ? b.createdAt.toDate().getTime() : new Date(b.createdAt).getTime()) : 0;
+        return timeB - timeA;
+      });
+      setGroups(list);
     });
   }, [classId]);
+
+  const handleDeleteClass = async () => {
+    if (!classId) return;
+    if (!window.confirm('Tem certeza de que deseja destruir esta masmorra? Todos os grupos nela criados também serão perdidos.')) {
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, 'classes', classId));
+      navigate('/classes');
+    } catch (err) {
+      console.error("Erro ao deletar masmorra:", err);
+    }
+  };
 
   const handleCreateGroup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1383,7 +1671,7 @@ const ClassDetail = ({ user }: { user: any }) => {
       classId,
       creatorId: user.uid,
       members: [user.uid],
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     });
     setShowCreate(false);
     navigate(`/group/${docRef.id}`);
@@ -1436,12 +1724,23 @@ const ClassDetail = ({ user }: { user: any }) => {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="bg-blue-600 dark:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black hover:bg-blue-700 dark:hover:bg-blue-600 transition-all shadow-lg shadow-blue-100 dark:shadow-blue-900/40 flex items-center gap-2"
-          >
-            <Plus className="h-5 w-5" /> Formar Nova Guilda (Grupo)
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            {(classroom.creatorId === user.uid || profile?.isProfessor) && (
+              <button
+                onClick={handleDeleteClass}
+                className="bg-red-50 hover:bg-red-100 text-red-600 dark:bg-red-950/20 dark:hover:bg-red-900/40 border-2 border-red-200 dark:border-red-900/40 px-6 py-4 rounded-2xl font-black transition-all flex items-center justify-center gap-2 shadow-sm"
+                title="Derrubar Masmorra (Mestre)"
+              >
+                <Trash2 className="h-5 w-5" /> Destruir Masmorra {profile?.isProfessor && "(Mestre)"}
+              </button>
+            )}
+            <button
+              onClick={() => setShowCreate(true)}
+              className="bg-blue-600 dark:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black hover:bg-blue-700 dark:hover:bg-blue-600 transition-all shadow-lg shadow-blue-100 dark:shadow-blue-900/40 flex items-center justify-center gap-2"
+            >
+              <Plus className="h-5 w-5" /> Formar Nova Guilda (Grupo)
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1607,7 +1906,7 @@ const GroupDetail = ({ user, profile }: { user: any, profile: UserProfile | null
       senderId: user.uid,
       senderName: profile?.name || 'Aluno',
       text: newMessage,
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     });
     setNewMessage('');
   };
@@ -1619,7 +1918,7 @@ const GroupDetail = ({ user, profile }: { user: any, profile: UserProfile | null
       applicantId: user.uid,
       status: 'pending',
       message: appMessage,
-      createdAt: serverTimestamp()
+      createdAt: new Date()
     });
     setAppMessage('');
   };
@@ -1774,7 +2073,7 @@ const GroupDetail = ({ user, profile }: { user: any, profile: UserProfile | null
                   )} />
                 </div>
                 <span className="text-[9px] font-bold text-gray-400 dark:text-zinc-600 mt-1 px-2 uppercase">
-                  {m.createdAt ? format(m.createdAt.toDate(), 'HH:mm', { locale: ptBR }) : '...'}
+                  {m.createdAt ? (typeof m.createdAt.toDate === 'function' ? format(m.createdAt.toDate(), 'HH:mm', { locale: ptBR }) : format(new Date(m.createdAt), 'HH:mm', { locale: ptBR })) : '...'}
                 </span>
               </div>
             ))}
@@ -1808,6 +2107,1524 @@ const GroupDetail = ({ user, profile }: { user: any, profile: UserProfile | null
           )}
         </div>
       </div>
+    </div>
+  );
+};
+
+const ACADEMIC_TOPICS = [
+  { id: 'provas_trabalhos', name: 'Provas & Trabalhos', icon: '📝' },
+  { id: 'tcc_monografia', name: 'TCC & Monografia', icon: '🎓' },
+  { id: 'estagio_carreira', name: 'Estágios & Carreira', icon: '💼' },
+  { id: 'pesquisa_cientifica', name: 'Iniciação Científica', icon: '🔬' },
+  { id: 'vida_academica', name: 'Vida Universitária', icon: '🏛️' },
+  { id: 'duvida_geral', name: 'Dúvidas Gerais', icon: '💡' }
+];
+
+const Forum = ({ user, profile }: { user: any; profile: UserProfile | null }) => {
+  const navigate = useNavigate();
+  const [topics, setTopics] = useState<ForumTopic[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'likes' | 'recent'>('likes'); // default is likes (destaque)
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [activeTopic, setActiveTopic] = useState<ForumTopic | null>(null);
+  const [replies, setReplies] = useState<ForumReply[]>([]);
+
+  // Form states
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newClassId, setNewClassId] = useState('duvida_geral');
+  const [replyText, setReplyText] = useState('');
+
+  useEffect(() => {
+    const qTopics = query(collection(db, 'forumTopics'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(qTopics, (snapshot) => {
+      const list: ForumTopic[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as ForumTopic);
+      });
+      setTopics(list);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeTopic) {
+      setReplies([]);
+      return;
+    }
+    const qReplies = query(
+      collection(db, 'forumReplies'),
+      where('topicId', '==', activeTopic.id),
+      orderBy('createdAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(qReplies, (snapshot) => {
+      const list: ForumReply[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as ForumReply);
+      });
+      setReplies(list);
+    }, (error) => {
+      console.error("Replies listener failed:", error);
+    });
+    return unsubscribe;
+  }, [activeTopic]);
+
+  const liveActiveTopic = activeTopic ? topics.find(t => t.id === activeTopic.id) || activeTopic : null;
+
+  const handleLikeTopic = async (topicId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    const topicDocRef = doc(db, 'forumTopics', topicId);
+    const topic = topics.find(t => t.id === topicId);
+    if (!topic) return;
+
+    const alreadyLiked = topic.likedBy?.includes(user.uid);
+    const newLikedBy = alreadyLiked 
+      ? topic.likedBy.filter(uid => uid !== user.uid)
+      : [...(topic.likedBy || []), user.uid];
+    const newLikesCount = alreadyLiked ? (topic.likesCount - 1) : (topic.likesCount + 1);
+
+    try {
+      await updateDoc(topicDocRef, {
+        likedBy: newLikedBy,
+        likesCount: Math.max(0, newLikesCount)
+      });
+    } catch (err) {
+      console.error("Erro ao curtir dúvida:", err);
+    }
+  };
+
+  const handleCreateTopic = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newTitle.trim() || !newDesc.trim()) return;
+
+    const matchedTopic = ACADEMIC_TOPICS.find(t => t.id === newClassId);
+
+    const topicData: Omit<ForumTopic, 'id'> = {
+      title: newTitle.trim(),
+      description: newDesc.trim(),
+      creatorId: user.uid,
+      creatorName: profile?.name || user.displayName || 'Estudante',
+      creatorPhoto: profile?.photoURL || user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+      classId: newClassId || 'duvida_geral',
+      className: matchedTopic ? `${matchedTopic.icon} ${matchedTopic.name}` : '💡 Dúvidas Gerais',
+      likesCount: 0,
+      likedBy: [],
+      replyCount: 0,
+      createdAt: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, 'forumTopics'), topicData);
+      setNewTitle('');
+      setNewDesc('');
+      setNewClassId('duvida_geral');
+      setShowCreateModal(false);
+    } catch (err) {
+      console.error("Erro ao postar dúvida:", err);
+    }
+  };
+
+  const handleAddReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !activeTopic || !replyText.trim()) return;
+
+    try {
+      const repliesColRef = collection(db, 'forumReplies');
+      const newReply = {
+        topicId: activeTopic.id,
+        senderId: user.uid,
+        senderName: profile?.name || user.displayName || 'Estudante',
+        senderPhoto: profile?.photoURL || user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+        text: replyText.trim(),
+        createdAt: serverTimestamp()
+      };
+      await addDoc(repliesColRef, newReply);
+
+      // Increment replyCount
+      const topicDocRef = doc(db, 'forumTopics', activeTopic.id);
+      await updateDoc(topicDocRef, {
+        replyCount: (liveActiveTopic?.replyCount || 0) + 1
+      });
+
+      setReplyText('');
+    } catch (err) {
+      console.error("Erro ao responder dúvida:", err);
+    }
+  };
+
+  const handleDeleteTopic = async (topicId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Deseja realmente excluir esta dúvida? Todas as respostas serão perdidas.')) return;
+    try {
+      await deleteDoc(doc(db, 'forumTopics', topicId));
+      if (activeTopic?.id === topicId) {
+        setActiveTopic(null);
+      }
+    } catch (err) {
+      console.error("Erro ao excluir dúvida:", err);
+    }
+  };
+
+  const filteredTopics = topics.filter(t => {
+    const matchesSearch = t.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          t.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesClass = selectedClassId === 'all' || t.classId === selectedClassId;
+    return matchesSearch && matchesClass;
+  }).sort((a, b) => {
+    if (sortBy === 'likes') {
+      return (b.likesCount || 0) - (a.likesCount || 0); // upvotes (destaque)
+    } else {
+      const aTime = a.createdAt?.seconds || 0;
+      const bTime = b.createdAt?.seconds || 0;
+      return bTime - aTime; // recent
+    }
+  });
+
+  const formatTopicDate = (createdAt: any) => {
+    if (!createdAt) return 'Agora mesmo';
+    try {
+      const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+      return format(date, "d 'de' MMMM, HH:mm", { locale: ptBR });
+    } catch (e) {
+      return 'Recentemente';
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <AnimatePresence mode="wait">
+        {!liveActiveTopic ? (
+          <motion.div
+            key="list"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="space-y-8"
+          >
+            {/* Header section with university-themed layout */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-8 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm">
+              <div>
+                <span className="bg-blue-105/10 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-black px-3.5 py-1.5 rounded-full uppercase tracking-widest block w-max mb-3">
+                  Espaço Acadêmico
+                </span>
+                <h1 className="text-3xl font-black text-black dark:text-white uppercase tracking-tighter leading-none mb-2">
+                  Dúvidas & Fórum
+                </h1>
+                <p className="text-gray-500 dark:text-gray-400 font-bold max-w-xl text-sm leading-relaxed">
+                  Tire dúvidas sobre matérias, colabore com as respostas de outros estudantes e apoie os posts de maior relevância!
+                </p>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 text-white min-w-[200px] py-4 rounded-2xl font-black transition-all shadow-lg hover:shadow-blue-300 dark:hover:shadow-none flex items-center justify-center gap-2 text-sm shrink-0 uppercase tracking-wider"
+              >
+                <Plus className="h-5 w-5" /> Mandar uma Dúvida
+              </button>
+            </div>
+
+            {/* Quick Filters, Search & Categories layout */}
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-5">
+              {/* Search & Sort controllers */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por assunto ou palavra-chave..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-100 dark:border-zinc-850 focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white"
+                  />
+                </div>
+                {/* Sorting controllers */}
+                <div className="flex bg-gray-55 dark:bg-zinc-950 p-1.5 rounded-2xl border border-gray-100 dark:border-zinc-850 shrink-0">
+                  <button
+                    onClick={() => setSortBy('likes')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 uppercase tracking-wider",
+                      sortBy === 'likes'
+                        ? "bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-450 hover:text-black dark:hover:text-white"
+                    )}
+                  >
+                    <Flame className="h-4 w-4" /> Em Destaque (Likes)
+                  </button>
+                  <button
+                    onClick={() => setSortBy('recent')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 uppercase tracking-wider",
+                      sortBy === 'recent'
+                        ? "bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-455 hover:text-black dark:hover:text-white"
+                    )}
+                  >
+                    <Zap className="h-4 w-4" /> Recentes
+                  </button>
+                </div>
+              </div>
+
+              {/* Classroom categories list */}
+              <div className="pt-2 border-t border-gray-50 dark:border-zinc-800">
+                <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-2.5">
+                  Filtrar por Tópico da Faculdade
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSelectedClassId('all')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-bold transition-all border",
+                      selectedClassId === 'all'
+                        ? "bg-blue-500 border-blue-500 text-white"
+                        : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-zinc-700"
+                    )}
+                  >
+                    🌟 Todos os Tópicos
+                  </button>
+                  {ACADEMIC_TOPICS.map(topic => (
+                    <button
+                      key={topic.id}
+                      onClick={() => setSelectedClassId(topic.id)}
+                      className={cn(
+                        "px-5 py-2 rounded-xl text-xs font-bold transition-all border max-w-xs truncate",
+                        selectedClassId === topic.id
+                          ? "bg-blue-500 border-blue-500 text-white"
+                          : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-zinc-700"
+                      )}
+                    >
+                      {topic.icon} {topic.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* List of doubts/topics */}
+            <div className="space-y-4">
+              {filteredTopics.length === 0 ? (
+                <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-[2.5rem] py-16 px-4 text-center">
+                  <div className="bg-blue-50 dark:bg-blue-950/20 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                    <MessageCircle className="h-8 w-8 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <h3 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">Nenhuma Dúvida Encontrada</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm font-bold mt-1 max-w-sm mx-auto">
+                    Não encontramos dúvidas para o filtro selecionado. Mande sua dúvida para inaugurar este espaço!
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-4">
+                  {filteredTopics.map((t) => {
+                    const isLiked = t.likedBy?.includes(user?.uid);
+                    return (
+                      <motion.div
+                        key={t.id}
+                        layout
+                        onClick={() => setActiveTopic(t)}
+                        className="bg-white dark:bg-zinc-900 hover:bg-gray-50/55 dark:hover:bg-zinc-900/60 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm hover:shadow-md cursor-pointer transition-all flex flex-col md:flex-row gap-5 items-start justify-between group"
+                      >
+                        <div className="space-y-2.5 flex-1 min-w-0">
+                          {/* Subject category tag */}
+                          <div className="flex items-center gap-2">
+                            <span className="bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider">
+                              {t.className || 'Dúvidas Gerais'}
+                            </span>
+                            <span className="text-[10px] font-bold text-gray-400">
+                              • Postado em {formatTopicDate(t.createdAt)}
+                            </span>
+                          </div>
+
+                          <h2 className="text-xl font-black text-black dark:text-white tracking-tight leading-snug group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                            {t.title}
+                          </h2>
+
+                          <p className="text-gray-550 dark:text-gray-400 text-sm font-bold line-clamp-2 leading-relaxed">
+                            {t.description}
+                          </p>
+
+                          {/* Creator item card inside list */}
+                          <div className="flex items-center gap-2.5 pt-2">
+                            {t.creatorPhoto ? (
+                              <img src={t.creatorPhoto} alt="" className="w-5.5 h-5.5 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-5.5 h-5.5 rounded-lg bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                                <UserIcon className="h-3 w-3 text-gray-400" />
+                              </div>
+                            )}
+                            <span className="text-xs font-semibold text-gray-650 dark:text-gray-350">
+                              Aluno {t.creatorName}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Interactive upvotes indicator and replies count */}
+                        <div className="flex md:flex-col items-center gap-2 self-stretch justify-end shrink-0">
+                          {/* Likes (Destaque) Button */}
+                          <button
+                            onClick={(e) => handleLikeTopic(t.id, e)}
+                            className={cn(
+                              "flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-black transition-all border w-full",
+                              isLiked
+                                ? "bg-red-500 hover:bg-red-650 border-red-500 text-white shadow-md shadow-red-100 dark:shadow-none"
+                                : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-400 hover:border-gray-300 dark:hover:border-zinc-750"
+                            )}
+                          >
+                            <ThumbsUp className={cn("h-4 w-4", isLiked ? "fill-white" : "")} />
+                            <span>{t.likesCount || 0}</span>
+                          </button>
+
+                          {/* Reply Count Indicator */}
+                          <div className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-black bg-blue-50 dark:bg-blue-900/15 text-blue-600 dark:text-blue-400 border border-blue-105/10 dark:border-none w-full">
+                            <MessageCircle className="h-4 w-4" />
+                            <span>{t.replyCount || 0}</span>
+                          </div>
+
+                          {/* Delete option for creator */}
+                          {t.creatorId === user?.uid && (
+                            <button
+                              onClick={(e) => handleDeleteTopic(t.id, e)}
+                              className="p-2 rounded-xl text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all self-center md:self-end"
+                              title="Excluir Dúvida"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ) : (
+          /* Doubt Detail View with discussion and replies list */
+          <motion.div
+            key="details"
+            initial={{ opacity: 0, x: 15 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -15 }}
+            className="space-y-6"
+          >
+            {/* Back to list button */}
+            <button
+              onClick={() => setActiveTopic(null)}
+              className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-black text-sm uppercase tracking-wider hover:translate-x-[-4px] transition-transform"
+            >
+              <ArrowLeft className="h-5 w-5" /> Voltar para o Fórum
+            </button>
+
+            {/* Main Topic Question Card */}
+            <div className="bg-white dark:bg-zinc-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-6">
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 text-xs font-black px-3 py-1.5 rounded-lg uppercase tracking-wider">
+                    {liveActiveTopic.className || 'Dúvidas Gerais'}
+                  </span>
+                  <span className="text-xs font-bold text-gray-450 dark:text-gray-500">
+                    Postado em {formatTopicDate(liveActiveTopic.createdAt)}
+                  </span>
+                </div>
+
+                <h1 className="text-2xl sm:text-3xl font-black text-black dark:text-white tracking-tight uppercase">
+                  {liveActiveTopic.title}
+                </h1>
+              </div>
+
+              {/* Description Body */}
+              <div className="bg-gray-55 dark:bg-zinc-950/80 p-6 rounded-2xl border border-gray-100 dark:border-zinc-850/50">
+                <p className="text-black dark:text-gray-105 font-semibold text-base leading-relaxed whitespace-pre-wrap">
+                  {liveActiveTopic.description}
+                </p>
+              </div>
+
+              {/* Creator details & upvoting button */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-4 border-t border-gray-50 dark:border-zinc-850">
+                <div className="flex items-center gap-3">
+                  {liveActiveTopic.creatorPhoto ? (
+                    <img src={liveActiveTopic.creatorPhoto} alt="" className="w-10 h-10 rounded-xl object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                      <UserIcon className="h-5 w-5 text-gray-500" />
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-sm font-black text-black dark:text-white leading-none">
+                      {liveActiveTopic.creatorName}
+                    </p>
+                    <p className="text-[10px] font-bold text-gray-400 lowercase tracking-widest mt-1">
+                      Autor da pergunta
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {/* Upvote controller */}
+                  <button
+                    onClick={(e) => handleLikeTopic(liveActiveTopic.id, e)}
+                    className={cn(
+                      "flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black transition-all border",
+                      liveActiveTopic.likedBy?.includes(user?.uid)
+                        ? "bg-red-500 border-red-500 text-white hover:bg-red-650"
+                        : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-400 hover:border-gray-350 dark:hover:border-zinc-750"
+                    )}
+                  >
+                    <ThumbsUp className={cn("h-4 w-4", liveActiveTopic.likedBy?.includes(user?.uid) ? "fill-white" : "")} />
+                    <span>Curtir Dúvida ({liveActiveTopic.likesCount || 0})</span>
+                  </button>
+
+                  {liveActiveTopic.creatorId === user?.uid && (
+                    <button
+                      onClick={(e) => handleDeleteTopic(liveActiveTopic.id, e)}
+                      className="bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/40 text-red-600 p-3.5 rounded-xl transition-all"
+                      title="Excluir Dúvida"
+                    >
+                      <Trash2 className="h-5 w-5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Discussion Replies List */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-black dark:text-white uppercase tracking-tight flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                <span>Respostas ({replies.length})</span>
+              </h3>
+
+              <div className="space-y-4">
+                {replies.length === 0 ? (
+                  <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-[2rem] py-12 px-4 text-center">
+                    <p className="text-gray-500 dark:text-gray-400 font-bold text-sm">
+                      Nenhuma resposta enviada ainda. Seja o primeiro a responder esta dúvida!
+                    </p>
+                  </div>
+                ) : (
+                  replies.map((reply) => (
+                    <div
+                      key={reply.id}
+                      className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-3.5"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          {reply.senderPhoto ? (
+                            <img src={reply.senderPhoto} alt="" className="w-8 h-8 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                              <UserIcon className="h-4 w-4 text-gray-500" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="text-xs font-black text-black dark:text-white leading-tight">
+                              {reply.senderName}
+                            </p>
+                            <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">
+                              Membro da guilda
+                            </p>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-400">
+                          {formatTopicDate(reply.createdAt)}
+                        </span>
+                      </div>
+
+                      <div className="pl-1 pt-1">
+                        <p className="text-gray-800 dark:text-gray-200 text-sm font-semibold leading-relaxed whitespace-pre-wrap">
+                          {reply.text}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Answer Write Area */}
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm col-span-3">
+              <form onSubmit={handleAddReply} className="space-y-4">
+                <div>
+                  <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                    Envie sua Resposta
+                  </label>
+                  <textarea
+                    rows={4}
+                    placeholder="Responda e ajude o seu colega herói com as melhores instruções!"
+                    value={replyText}
+                    onChange={e => setReplyText(e.target.value)}
+                    required
+                    className="w-full px-5 py-4 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-100 dark:border-zinc-850 focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white leading-relaxed resize-none"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    className="bg-blue-600 dark:bg-blue-500 hover:bg-blue-700 text-white px-8 py-3.5 rounded-2xl font-black transition-all shadow-lg hover:shadow-blue-350 dark:hover:shadow-none text-xs uppercase tracking-wider flex items-center gap-1.5"
+                  >
+                    <Send className="h-4 w-4" /> Enviar Resposta
+                  </button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Create Topic Modal overlay */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 max-w-xl w-full border border-gray-100 dark:border-zinc-800 shadow-2xl relative animate-in fade-in"
+          >
+            <button
+              onClick={() => setShowCreateModal(false)}
+              className="absolute top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 hover:text-black dark:hover:text-white transition-all overflow-hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tighter mb-1 select-none">
+              Mandar Nova Dúvida
+            </h2>
+            <p className="text-xs font-bold text-gray-450 uppercase tracking-wider mb-6">
+              Inicie uma discussão de guilda no fórum de estudos!
+            </p>
+
+            <form onSubmit={handleCreateTopic} className="space-y-4">
+              {/* Select Category */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Tópico / Categoria
+                </label>
+                <select
+                  value={newClassId}
+                  onChange={e => setNewClassId(e.target.value)}
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950 border border-gray-150 dark:border-zinc-850 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:bg-white font-bold text-sm outline-none"
+                >
+                  {ACADEMIC_TOPICS.map(topic => (
+                    <option key={topic.id} value={topic.id}>{topic.icon} {topic.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Title input */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Título da Dúvida
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Como funciona herança múltipla em C++?"
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  required
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-150 dark:border-zinc-850 focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white"
+                />
+              </div>
+
+              {/* Description textarea */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Descreva seu problema com detalhes
+                </label>
+                <textarea
+                  rows={5}
+                  placeholder="Descreva detalhadamente qual erro você está encontrando ou quais tópicos acadêmicos deseja discutir..."
+                  value={newDesc}
+                  onChange={e => setNewDesc(e.target.value)}
+                  required
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-150 dark:border-zinc-850 focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white leading-relaxed resize-none"
+                />
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-3 pt-4 border-t border-gray-50 dark:border-zinc-850">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-gray-700 dark:text-gray-300 font-black py-4 rounded-2xl transition-all text-xs uppercase tracking-wider"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white font-black py-4 rounded-2xl transition-all shadow-md text-xs uppercase tracking-wider"
+                >
+                  Publicar Dúvida
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const Summaries = ({ user, profile }: { user: any; profile: UserProfile | null }) => {
+  const navigate = useNavigate();
+  const [summaries, setSummaries] = useState<AcademicSummary[]>([]);
+  const [classes, setClasses] = useState<ClassRoom[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedClassId, setSelectedClassId] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'votes' | 'recent'>('votes');
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [activeSummary, setActiveSummary] = useState<AcademicSummary | null>(null);
+  const [comments, setComments] = useState<SummaryComment[]>([]);
+
+  // Form states
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newClassId, setNewClassId] = useState('');
+  const [selectedFile, setSelectedFile] = useState<{ name: string; size: string } | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [commentText, setCommentText] = useState('');
+
+  useEffect(() => {
+    const qSummaries = query(collection(db, 'academicSummaries'), orderBy('createdAt', 'desc'));
+    const unsubscribe = onSnapshot(qSummaries, (snapshot) => {
+      const list: AcademicSummary[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as AcademicSummary);
+      });
+      setSummaries(list);
+    });
+
+    const qClasses = query(collection(db, 'classes'));
+    const unsubscribeClasses = onSnapshot(qClasses, (snapshot) => {
+      const list: ClassRoom[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as ClassRoom);
+      });
+      setClasses(list);
+    });
+
+    return () => {
+      unsubscribe();
+      unsubscribeClasses();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeSummary) {
+      setComments([]);
+      return;
+    }
+    const qComments = query(
+      collection(db, 'summaryComments'),
+      where('summaryId', '==', activeSummary.id),
+      orderBy('createdAt', 'asc')
+    );
+    const unsubscribe = onSnapshot(qComments, (snapshot) => {
+      const list: SummaryComment[] = [];
+      snapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() } as SummaryComment);
+      });
+      setComments(list);
+    }, (error) => {
+      console.error("Comments listener failed:", error);
+    });
+    return unsubscribe;
+  }, [activeSummary]);
+
+  const liveActiveSummary = activeSummary ? summaries.find(s => s.id === activeSummary.id) || activeSummary : null;
+
+  const handleVote = async (summaryId: string, type: 'like' | 'dislike', e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!user) return;
+    const summaryDocRef = doc(db, 'academicSummaries', summaryId);
+    const summary = summaries.find(s => s.id === summaryId);
+    if (!summary) return;
+
+    let likedBy = summary.likedBy || [];
+    let dislikedBy = summary.dislikedBy || [];
+
+    const alreadyLiked = likedBy.includes(user.uid);
+    const alreadyDisliked = dislikedBy.includes(user.uid);
+
+    if (type === 'like') {
+      if (alreadyLiked) {
+        likedBy = likedBy.filter(uid => uid !== user.uid);
+      } else {
+        likedBy = [...likedBy, user.uid];
+        dislikedBy = dislikedBy.filter(uid => uid !== user.uid);
+      }
+    } else {
+      if (alreadyDisliked) {
+        dislikedBy = dislikedBy.filter(uid => uid !== user.uid);
+      } else {
+        dislikedBy = [...dislikedBy, user.uid];
+        likedBy = likedBy.filter(uid => uid !== user.uid);
+      }
+    }
+
+    try {
+      await updateDoc(summaryDocRef, {
+        likedBy,
+        dislikedBy,
+        likesCount: likedBy.length,
+        dislikesCount: dislikedBy.length
+      });
+    } catch (err) {
+      console.error("Erro ao votar no resumo:", err);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.type === "application/pdf" || file.name.endsWith(".pdf")) {
+        const sizeStr = file.size > 1024 * 1024 
+          ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
+          : `${(file.size / 1024).toFixed(0)} KB`;
+        setSelectedFile({ name: file.name, size: sizeStr });
+      } else {
+        alert("Por favor, selecione apenas arquivos PDF!");
+      }
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const sizeStr = file.size > 1024 * 1024 
+        ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
+        : `${(file.size / 1024).toFixed(0)} KB`;
+      setSelectedFile({ name: file.name, size: sizeStr });
+    }
+  };
+
+  const handleUploadSummary = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !newTitle.trim() || !newDesc.trim()) return;
+
+    const matchedClass = classes.find(c => c.id === newClassId);
+
+    const summaryData: Omit<AcademicSummary, 'id'> = {
+      title: newTitle.trim(),
+      description: newDesc.trim(),
+      pdfUrl: '#',
+      pdfName: selectedFile ? selectedFile.name : 'resumo_da_materia.pdf',
+      pdfSize: selectedFile ? selectedFile.size : '1.4 MB',
+      subjectId: newClassId || 'general',
+      subjectName: matchedClass ? matchedClass.name : 'Geral & Transversais',
+      likesCount: 0,
+      dislikesCount: 0,
+      likedBy: [],
+      dislikedBy: [],
+      creatorId: user.uid,
+      creatorName: profile?.name || user.displayName || 'Estudante',
+      creatorPhoto: profile?.photoURL || user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+      commentCount: 0,
+      createdAt: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, 'academicSummaries'), summaryData);
+      setNewTitle('');
+      setNewDesc('');
+      setNewClassId('');
+      setSelectedFile(null);
+      setShowUploadModal(false);
+    } catch (err) {
+      console.error("Erro ao publicar resumo:", err);
+    }
+  };
+
+  const handleAddComment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !activeSummary || !commentText.trim()) return;
+
+    try {
+      const commentsColRef = collection(db, 'summaryComments');
+      const newComment = {
+        summaryId: activeSummary.id,
+        senderId: user.uid,
+        senderName: profile?.name || user.displayName || 'Estudante',
+        senderPhoto: profile?.photoURL || user.photoURL || `https://api.dicebear.com/7.x/pixel-art/svg?seed=${user.uid}`,
+        text: commentText.trim(),
+        createdAt: serverTimestamp()
+      };
+      await addDoc(commentsColRef, newComment);
+
+      const summaryDocRef = doc(db, 'academicSummaries', activeSummary.id);
+      await updateDoc(summaryDocRef, {
+        commentCount: (liveActiveSummary?.commentCount || 0) + 1
+      });
+
+      setCommentText('');
+    } catch (err) {
+      console.error("Erro ao comentar resumo:", err);
+    }
+  };
+
+  const handleDeleteSummary = async (summaryId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm('Deseja realmente deletar este resumo acadêmico? Todas as avaliações e comentários serão perdidos.')) return;
+    try {
+      await deleteDoc(doc(db, 'academicSummaries', summaryId));
+      if (activeSummary?.id === summaryId) {
+        setActiveSummary(null);
+      }
+    } catch (err) {
+      console.error("Erro ao excluir resumo:", err);
+    }
+  };
+
+  const filteredSummaries = summaries.filter(s => {
+    const matchesSearch = s.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
+                          s.description.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesClass = selectedClassId === 'all' || s.subjectId === selectedClassId;
+    return matchesSearch && matchesClass;
+  }).sort((a, b) => {
+    if (sortBy === 'votes') {
+      const aBalance = (a.likesCount || 0) - (a.dislikesCount || 0);
+      const bBalance = (b.likesCount || 0) - (b.dislikesCount || 0);
+      return bBalance - aBalance;
+    } else {
+      const aTime = a.createdAt?.seconds || 0;
+      const bTime = b.createdAt?.seconds || 0;
+      return bTime - aTime;
+    }
+  });
+
+  const formatSummaryDate = (createdAt: any) => {
+    if (!createdAt) return 'Agora mesmo';
+    try {
+      const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+      return format(date, "d 'de' MMMM, HH:mm", { locale: ptBR });
+    } catch (e) {
+      return 'Recentemente';
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <AnimatePresence mode="wait">
+        {!liveActiveSummary ? (
+          <motion.div
+            key="list"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            className="space-y-8"
+          >
+            {/* Header section with university-themed layout */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-zinc-900 p-8 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm animate-in fade-in duration-300">
+              <div>
+                <span className="bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-xs font-black px-3.5 py-1.5 rounded-full uppercase tracking-widest block w-max mb-3">
+                  Biblioteca Coletiva
+                </span>
+                <h1 className="text-3xl font-black text-black dark:text-white uppercase tracking-tighter leading-none mb-2">
+                  Resumos & PDF da Galera
+                </h1>
+                <p className="text-gray-500 dark:text-gray-400 font-bold max-w-xl text-sm leading-relaxed">
+                  Suba seus próprios arquivos PDF de resumos, organize por matéria específica e colabore votando como Bom 👍 ou Ruim 👎!
+                </p>
+              </div>
+              <button
+                onClick={() => setShowUploadModal(true)}
+                className="bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 text-white min-w-[220px] py-4 rounded-2xl font-black transition-all shadow-lg hover:shadow-emerald-300 dark:hover:shadow-none flex items-center justify-center gap-2 text-sm shrink-0 uppercase tracking-wider"
+              >
+                <Upload className="h-5 w-5" /> Compartilhar Resumo
+              </button>
+            </div>
+
+            {/* Quick Filters, Search & Categories layout */}
+            <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-5">
+              {/* Search & Sort controllers */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por resumo, assunto..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    className="w-full pl-12 pr-4 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-100 dark:border-zinc-850 focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white"
+                  />
+                </div>
+                {/* Sorting controllers */}
+                <div className="flex bg-gray-55 dark:bg-zinc-950 p-1.5 rounded-2xl border border-gray-100 dark:border-zinc-850 shrink-0">
+                  <button
+                    onClick={() => setSortBy('votes')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 uppercase tracking-wider",
+                      sortBy === 'votes'
+                        ? "bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-450 hover:text-black dark:hover:text-white"
+                    )}
+                  >
+                    <Flame className="h-4 w-4" /> Top Votados
+                  </button>
+                  <button
+                    onClick={() => setSortBy('recent')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 uppercase tracking-wider",
+                      sortBy === 'recent'
+                        ? "bg-white dark:bg-zinc-900 text-emerald-600 dark:text-emerald-400 shadow-sm"
+                        : "text-gray-500 dark:text-gray-455 hover:text-black dark:hover:text-white"
+                    )}
+                  >
+                    <Zap className="h-4 w-4" /> Mais Recentes
+                  </button>
+                </div>
+              </div>
+
+              {/* Classroom categories/subject list */}
+              <div className="pt-2 border-t border-gray-50 dark:border-zinc-800">
+                <span className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-2.5">
+                  Filtrar por Matéria Específica
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setSelectedClassId('all')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-bold transition-all border",
+                      selectedClassId === 'all'
+                        ? "bg-emerald-500 border-emerald-500 text-white"
+                        : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-zinc-700"
+                    )}
+                  >
+                    Ver Todas
+                  </button>
+                  <button
+                    onClick={() => setSelectedClassId('general')}
+                    className={cn(
+                      "px-5 py-2 rounded-xl text-xs font-bold transition-all border",
+                      selectedClassId === 'general'
+                        ? "bg-emerald-500 border-emerald-500 text-white"
+                        : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-zinc-700"
+                    )}
+                  >
+                    💡 Geral & Transversais
+                  </button>
+                  {classes.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedClassId(c.id)}
+                      className={cn(
+                        "px-5 py-2 rounded-xl text-xs font-bold transition-all border max-w-xs truncate",
+                        selectedClassId === c.id
+                          ? "bg-emerald-500 border-emerald-500 text-white"
+                          : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-zinc-700"
+                      )}
+                    >
+                      📚 {c.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* List of summaries */}
+            <div className="space-y-4">
+              {filteredSummaries.length === 0 ? (
+                <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-[2.5rem] py-16 px-4 text-center">
+                  <div className="bg-emerald-50 dark:bg-emerald-950/20 w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-4">
+                    <FileText className="h-8 w-8 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <h3 className="text-xl font-black text-black dark:text-white uppercase tracking-tight">Nenhum Resumo Publicado</h3>
+                  <p className="text-gray-500 dark:text-gray-400 text-sm font-bold mt-1 max-w-sm mx-auto">
+                    Nenhum aluno publicou arquivos para este filtro ainda. Compartilhe o primeiro resumo para ajudar os demais!
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-bottom-3 duration-300">
+                  {filteredSummaries.map((s) => {
+                    const isLiked = s.likedBy?.includes(user?.uid);
+                    const isDisliked = s.dislikedBy?.includes(user?.uid);
+                    return (
+                      <motion.div
+                        key={s.id}
+                        layout
+                        onClick={() => setActiveSummary(s)}
+                        className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-[2rem] p-6 shadow-sm hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group h-full relative hover:scale-[1.01]"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="bg-blue-100 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider block truncate max-w-[180px]">
+                              {s.subjectName}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-bold shrink-0">
+                              {formatSummaryDate(s.createdAt)}
+                            </span>
+                          </div>
+
+                          <h3 className="text-lg font-black text-black dark:text-white tracking-tight leading-snug group-hover:text-emerald-500 transition-colors">
+                            {s.title}
+                          </h3>
+
+                          <p className="text-gray-500 dark:text-gray-400 text-xs font-bold line-clamp-2 leading-relaxed">
+                            {s.description}
+                          </p>
+
+                          {/* PDF Visual Indicator */}
+                          <div className="flex items-center gap-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/10 p-3 rounded-xl matches-pdf">
+                            <FileText className="h-5 w-5 text-rose-600 dark:text-rose-400 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-black text-rose-900 dark:text-rose-300 truncate leading-none">
+                                {s.pdfName || 'resumo_academico.pdf'}
+                              </p>
+                              <p className="text-[10px] text-rose-500 dark:text-rose-455 font-bold mt-0.5">
+                                PDF Document • {s.pdfSize || '1.2 MB'}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Card Footer with Votes, Comments count and Authorship */}
+                        <div className="pt-4 mt-4 border-t border-gray-50 dark:border-zinc-850 flex items-center justify-between gap-2.5">
+                          {/* Author information */}
+                          <div className="flex items-center gap-2 min-w-0">
+                            {s.creatorPhoto ? (
+                              <img src={s.creatorPhoto} alt="" className="w-6 h-6 rounded-lg object-cover" referrerPolicy="no-referrer" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-lg bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                                <UserIcon className="h-3 w-3 text-gray-400" />
+                              </div>
+                            )}
+                            <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 truncate">
+                              Por {s.creatorName}
+                            </span>
+                          </div>
+
+                          {/* Comments & Votes layout */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Vote BOM */}
+                            <button
+                              onClick={(e) => handleVote(s.id, 'like', e)}
+                              className={cn(
+                                "p-2 rounded-xl flex items-center justify-center gap-1 text-[10px] font-black transition-all border",
+                                isLiked
+                                  ? "bg-emerald-500 border-emerald-500 text-white"
+                                  : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-500 hover:text-emerald-500 hover:border-emerald-250"
+                              )}
+                              title="Resumo de Qualidade (Bom)"
+                            >
+                              👍 <span>{s.likesCount || 0}</span>
+                            </button>
+
+                            {/* Vote RUIM */}
+                            <button
+                              onClick={(e) => handleVote(s.id, 'dislike', e)}
+                              className={cn(
+                                "p-2 rounded-xl flex items-center justify-center gap-1 text-[10px] font-black transition-all border",
+                                isDisliked
+                                  ? "bg-red-500 border-red-500 text-white"
+                                  : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-500 hover:text-red-550 hover:border-red-250"
+                              )}
+                              title="Resumo Confuso/Incompleto (Ruim)"
+                            >
+                              👎 <span>{s.dislikesCount || 0}</span>
+                            </button>
+
+                            {/* Comment Count Indicator */}
+                            <div className="p-2 rounded-xl bg-gray-55 dark:bg-zinc-950 border border-gray-100 dark:border-zinc-850 text-gray-500 flex items-center gap-1 text-[10px] font-black">
+                              <MessageCircle className="h-3.5 w-3.5 text-blue-500" />
+                              <span>{s.commentCount || 0}</span>
+                            </div>
+
+                            {/* Delete/Trash button for creator or professor */}
+                            {(s.creatorId === user?.uid || profile?.isProfessor) && (
+                              <button
+                                onClick={(e) => handleDeleteSummary(s.id, e)}
+                                className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all rounded-xl ml-1"
+                                title="Excluir Resumo"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        ) : (
+          /* Summary Details & Evaluation View */
+          <motion.div
+            key="details"
+            initial={{ opacity: 0, x: 15 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -15 }}
+            className="space-y-6"
+          >
+            {/* Back button */}
+            <button
+              onClick={() => setActiveSummary(null)}
+              className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-black text-sm uppercase tracking-wider hover:translate-x-[-4px] transition-transform"
+            >
+              <ArrowLeft className="h-5 w-5" /> Voltar para a Biblioteca
+            </button>
+
+            {/* Grid for description and simulated pdf viewer */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Document Overview & Simulated PDF viewer - 2 cols on wide screens */}
+              <div className="lg:col-span-2 space-y-6">
+                <div className="bg-white dark:bg-zinc-900 p-8 rounded-[2.5rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-6 animate-in fade-in duration-300">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-blue-105/10 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-xs font-black px-3 py-1.5 rounded-lg uppercase tracking-wider">
+                        {liveActiveSummary.subjectName}
+                      </span>
+                      <span className="text-xs font-bold text-gray-450 dark:text-gray-500">
+                        Publicado em {formatSummaryDate(liveActiveSummary.createdAt)}
+                      </span>
+                    </div>
+
+                    <h1 className="text-2xl sm:text-3xl font-black text-black dark:text-white tracking-tight uppercase">
+                      {liveActiveSummary.title}
+                    </h1>
+                  </div>
+
+                  <div className="border-t border-b border-gray-50 dark:border-zinc-850 py-5 flex items-center gap-3">
+                    {liveActiveSummary.creatorPhoto ? (
+                      <img src={liveActiveSummary.creatorPhoto} alt="" className="w-10 h-10 rounded-xl object-cover" referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-xl bg-gray-100 dark:bg-zinc-800 flex items-center justify-center">
+                        <UserIcon className="h-5 w-5 text-gray-500" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-black text-black dark:text-white leading-none">
+                        Aluno {liveActiveSummary.creatorName}
+                      </p>
+                      <p className="text-[10px] font-bold text-gray-400 lowercase tracking-widest mt-1">
+                        Autor do resumo • Compartilhando com a guilda
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Summary text/description */}
+                  <div className="space-y-2">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest leading-none">
+                      Introdução & Escopo do Resumo
+                    </h4>
+                    <p className="text-black dark:text-gray-200 font-semibold text-base leading-relaxed whitespace-pre-wrap">
+                      {liveActiveSummary.description}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Simulated PDF Viewer Experience */}
+                <div className="bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800 rounded-[2.5rem] p-6 shadow-sm space-y-4">
+                  <div className="flex justify-between items-center bg-gray-55 dark:bg-zinc-950 p-4 rounded-2xl border border-gray-100 dark:border-zinc-850">
+                    <div className="flex items-center gap-3">
+                      <FileText className="h-8 w-8 text-rose-600 dark:text-rose-400" />
+                      <div>
+                        <p className="text-xs font-black text-black dark:text-white">
+                          {liveActiveSummary.pdfName || 'resumo.pdf'}
+                        </p>
+                        <p className="text-[10px] text-gray-400 font-bold mt-0.5">
+                          Tamanho do Arquivo: {liveActiveSummary.pdfSize || '1.6 MB'} • Formato PDF Autorizado
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        alert('Download do PDF do resumo simulado com sucesso!');
+                      }}
+                      className="bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl transition-all shadow-lg shrink-0 block"
+                    >
+                      Baixar PDF
+                    </a>
+                  </div>
+
+                  {/* Simulated rendered PDF Pages */}
+                  <div className="bg-gray-105 dark:bg-zinc-950 p-6 rounded-2xl border border-dashed border-gray-200 dark:border-zinc-800 text-center select-none space-y-4">
+                    <div className="bg-white dark:bg-zinc-900 max-w-lg mx-auto p-10 rounded-xl shadow-lg border border-gray-150 dark:border-zinc-850 min-h-[340px] flex flex-col justify-between text-left relative overflow-hidden">
+                      <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-emerald-500 to-teal-500" />
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                          <span className="text-[10px] font-black tracking-widest text-emerald-600 uppercase">UNISOHUB SUMMARIES v1.0</span>
+                          <span className="text-[10px] font-black text-gray-300">PAGINA 1 / 1</span>
+                        </div>
+                        <h2 className="text-xl font-black text-black dark:text-white tracking-tight border-b pb-2">
+                          {liveActiveSummary.title}
+                        </h2>
+                        <div className="space-y-2 text-xs text-gray-650 dark:text-gray-455 font-bold leading-relaxed">
+                          <p>⭐ [CONTEÚDO ACADÊMICO RESUMIDO NA ÍNTEGRA]</p>
+                          <p>• Principais diretrizes estudadas em sala de aula detalhadas para facilitar a revisão.</p>
+                          <p>• Fórmulas básicas, definições críticas de conceitos, e bibliografia sugerida pelo corpo docente.</p>
+                          <p>• Dicas práticas de memorização rápida elaboradas pelo autor do resumo.</p>
+                        </div>
+                      </div>
+                      <div className="bg-gray-50 dark:bg-zinc-950 p-3 rounded-lg text-[10px] text-gray-500 font-black flex items-center gap-1">
+                        🔒 Documentação revisada pela comunidade e ativa para estudo.
+                      </div>
+                    </div>
+                    <p className="text-xs text-gray-450 dark:text-gray-500 font-bold">
+                      💡 Visualização da página 1 de 1. Suporte completo a PDFs acadêmicos.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Side controls - Vote counters & Comments Section */}
+              <div className="space-y-6">
+                {/* Evaluations Card */}
+                <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black text-black dark:text-white uppercase tracking-tight">
+                    Avaliação da Comunidade
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Vote BOM */}
+                    <button
+                      onClick={(e) => handleVote(liveActiveSummary.id, 'like', e)}
+                      className={cn(
+                        "p-4 rounded-2xl flex flex-col items-center gap-2 border transition-all",
+                        liveActiveSummary.likedBy?.includes(user?.uid)
+                          ? "bg-emerald-500 border-emerald-500 text-white shadow-lg shadow-emerald-100 dark:shadow-none"
+                          : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-750 dark:text-gray-300 hover:border-emerald-300 dark:hover:border-zinc-700"
+                      )}
+                    >
+                      👍
+                      <span className="text-xs font-black uppercase tracking-wider">Bom ({liveActiveSummary.likesCount || 0})</span>
+                    </button>
+
+                    {/* Vote RUIM */}
+                    <button
+                      onClick={(e) => handleVote(liveActiveSummary.id, 'dislike', e)}
+                      className={cn(
+                        "p-4 rounded-2xl flex flex-col items-center gap-2 border transition-all",
+                        liveActiveSummary.dislikedBy?.includes(user?.uid)
+                          ? "bg-red-500 border-red-500 text-white shadow-lg shadow-red-100 dark:shadow-none"
+                          : "bg-gray-55 dark:bg-zinc-950 border-gray-100 dark:border-zinc-850 text-gray-750 dark:text-gray-300 hover:border-red-300 dark:hover:border-zinc-700"
+                      )}
+                    >
+                      👎
+                      <span className="text-xs font-black uppercase tracking-wider">Ruim ({liveActiveSummary.dislikesCount || 0})</span>
+                    </button>
+                  </div>
+
+                  {/* Summary deleted by author or pro */}
+                  {(liveActiveSummary.creatorId === user?.uid || profile?.isProfessor) && (
+                    <button
+                      onClick={(e) => handleDeleteSummary(liveActiveSummary.id, e)}
+                      className="w-full bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/40 text-red-600 font-black text-xs uppercase tracking-wider py-3.5 rounded-xl transition-all flex items-center justify-center gap-1.5"
+                    >
+                      <Trash2 className="h-4 w-4" /> Deletar Resumo
+                    </button>
+                  )}
+                </div>
+
+                {/* Comments box */}
+                <div className="bg-white dark:bg-zinc-900 p-6 rounded-[2rem] border border-gray-100 dark:border-zinc-800 shadow-sm space-y-4">
+                  <h3 className="text-sm font-black text-black dark:text-white uppercase tracking-tight flex items-center gap-1.5">
+                    <MessageCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                    Comentários ({comments.length})
+                  </h3>
+
+                  {/* Comment List */}
+                  <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                    {comments.length === 0 ? (
+                      <p className="text-xs text-gray-450 dark:text-gray-500 text-center py-4 font-semibold">
+                        Nenhum comentário enviado ainda.
+                      </p>
+                    ) : (
+                      comments.map(c => (
+                        <div key={c.id} className="bg-gray-55 dark:bg-zinc-950 p-4 rounded-xl border border-gray-100 dark:border-zinc-850 space-y-1.5">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="text-xs font-black text-black dark:text-white truncate">
+                              {c.senderName}
+                            </span>
+                            <span className="text-[9px] text-gray-400 font-bold shrink-0">
+                              {formatSummaryDate(c.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-700 dark:text-gray-300 font-bold whitespace-pre-wrap leading-relaxed">
+                            {c.text}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Form to submit new comment */}
+                  <form onSubmit={handleAddComment} className="space-y-3 pt-3 border-t border-gray-50 dark:border-zinc-850">
+                    <textarea
+                      rows={3}
+                      placeholder="Diga se o resumo te ajudou!"
+                      value={commentText}
+                      onChange={e => setCommentText(e.target.value)}
+                      required
+                      className="w-full px-4 py-3 rounded-xl bg-gray-55 dark:bg-zinc-950 bg-opacity-80 border border-gray-100 dark:border-zinc-850 focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-xs text-black dark:text-white resize-none"
+                    />
+                    <button
+                      type="submit"
+                      className="w-full bg-emerald-600 dark:bg-emerald-500 hover:bg-emerald-700 text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1"
+                    >
+                      <Send className="h-3.5 w-3.5" /> Enviar Comentário
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Upload Summary Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
+          <motion.div
+            initial={{ scale: 0.95, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-white dark:bg-zinc-900 rounded-[2.5rem] p-8 max-w-xl w-full border border-gray-100 dark:border-zinc-800 shadow-2xl relative"
+          >
+            <button
+              onClick={() => setShowUploadModal(false)}
+              className="absolute top-6 right-6 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-400 hover:text-black dark:hover:text-white transition-all overflow-hidden"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <h2 className="text-2xl font-black text-black dark:text-white uppercase tracking-tighter mb-1 select-none">
+              Compartilhar Resumo
+            </h2>
+            <p className="text-xs font-bold text-gray-455 uppercase tracking-wider mb-6">
+              Suba arquivos PDF e forneça o roteiro de estudos das matérias
+            </p>
+
+            <form onSubmit={handleUploadSummary} className="space-y-4">
+              {/* Select subject */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Associar a qual Matéria?
+                </label>
+                <select
+                  value={newClassId}
+                  onChange={e => setNewClassId(e.target.value)}
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950 border border-gray-150 dark:border-zinc-850 text-gray-800 dark:text-gray-200 focus:ring-2 focus:ring-emerald-500 focus:bg-white font-bold text-sm outline-none"
+                >
+                  <option value="">💡 Geral & Transversais (Assuntos Gerais)</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>📚 {c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Title */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Título do Resumo / Tópico
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: Resumo Geral de Álgebra Linear - P1"
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  required
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-150 dark:border-zinc-850 focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white"
+                />
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5">
+                  Breve introdução / descritivo das matérias inclusas
+                </label>
+                <textarea
+                  rows={4}
+                  placeholder="Escreva quais capítulos foram cobertos, dicas adicionais, fórmulas inclusas, etc..."
+                  value={newDesc}
+                  onChange={e => setNewDesc(e.target.value)}
+                  required
+                  className="w-full px-5 py-3.5 rounded-2xl bg-gray-55 dark:bg-zinc-950/80 border border-gray-150 dark:border-zinc-850 focus:ring-2 focus:ring-emerald-500 focus:bg-white dark:focus:bg-zinc-900 transition-all font-bold text-sm text-black dark:text-white leading-relaxed resize-none"
+                />
+              </div>
+
+              {/* PDF Document Upload Area with dual drag & drop / click handler */}
+              <div>
+                <label className="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-widest block mb-1.5 font-bold">
+                  Documento PDF Associado
+                </label>
+                
+                <div
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                  className={cn(
+                    "border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-2",
+                    isDragging
+                      ? "border-emerald-500 bg-emerald-50/20"
+                      : "border-gray-250 hover:border-emerald-400 dark:border-zinc-800 dark:hover:border-emerald-600 bg-gray-55 dark:bg-zinc-950"
+                  )}
+                  onClick={() => document.getElementById("pdf-upload")?.click()}
+                >
+                  <input
+                    id="pdf-upload"
+                    type="file"
+                    accept="application/pdf"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <FileText className="h-8 w-8 text-neutral-400 group-hover:text-emerald-500" />
+                  {selectedFile ? (
+                    <div className="text-xs">
+                      <p className="font-black text-emerald-600 dark:text-emerald-400">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-gray-400 font-bold mt-0.5">
+                        Tamanho do arquivo: {selectedFile.size} • PDF Detectado
+                      </p>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs font-black text-black dark:text-white">
+                        Arraste ou clique para selecionar seu PDF acadêmico
+                      </p>
+                      <p className="text-[10px] text-gray-450 dark:text-gray-500 font-bold mt-1 uppercase tracking-wider">
+                        Apenas formato PDF permitido (.pdf)
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 pt-4 border-t border-gray-50 dark:border-zinc-850">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="flex-1 bg-gray-100 hover:bg-gray-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-gray-700 dark:text-gray-300 font-black py-4 rounded-2xl transition-all text-xs uppercase tracking-wider"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600 text-white font-black py-4 rounded-2xl transition-all shadow-md text-xs uppercase tracking-wider"
+                >
+                  Publicar Resumo
+                </button>
+              </div>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1997,9 +3814,12 @@ export default function App() {
             <Routes>
               <Route path="/" element={<Home user={user} />} />
               <Route path="/profile" element={user ? <Profile user={user} profile={profile} setProfile={setProfile} /> : <Navigate to="/" />} />
-              <Route path="/classes" element={user ? <Classes user={user} /> : <Navigate to="/" />} />
+              <Route path="/classes" element={user ? <Classes user={user} profile={profile} /> : <Navigate to="/" />} />
+              <Route path="/my-groups" element={user ? <MyGroups user={user} /> : <Navigate to="/" />} />
               <Route path="/quizzes" element={user ? <Quizzes user={user} profile={profile} /> : <Navigate to="/" />} />
-              <Route path="/class/:classId" element={user ? <ClassDetail user={user} /> : <Navigate to="/" />} />
+              <Route path="/forum" element={user ? <Forum user={user} profile={profile} /> : <Navigate to="/" />} />
+              <Route path="/summaries" element={user ? <Summaries user={user} profile={profile} /> : <Navigate to="/" />} />
+              <Route path="/class/:classId" element={user ? <ClassDetail user={user} profile={profile} /> : <Navigate to="/" />} />
               <Route path="/group/:groupId" element={user ? <GroupDetail user={user} profile={profile} /> : <Navigate to="/" />} />
             </Routes>
           </main>

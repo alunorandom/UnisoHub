@@ -56,3 +56,60 @@ export interface Message {
   text: string;
   createdAt: any;
 }
+
+export interface ForumTopic {
+  id: string;
+  title: string;
+  description: string;
+  creatorId: string;
+  creatorName: string;
+  creatorPhoto?: string;
+  classId?: string;
+  className?: string;
+  likesCount: number;
+  likedBy: string[]; // List of user UIDs who liked/upvoted this topic
+  replyCount: number;
+  createdAt: any;
+}
+
+export interface ForumReply {
+  id: string;
+  topicId: string;
+  senderId: string;
+  senderName: string;
+  senderPhoto?: string;
+  text: string;
+  createdAt: any;
+}
+
+export interface AcademicSummary {
+  id: string;
+  title: string;
+  description: string;
+  pdfUrl?: string; // Simulado ou URL real
+  pdfName?: string; // Nome original do arquivo simula o upload de PDF
+  pdfSize?: string; // Tamanho em KB/MB simulado
+  subjectId: string; // ID da matéria/masmorra ou 'geral'
+  subjectName: string;
+  likesCount: number; // Avaliações positivas (Bom)
+  dislikesCount: number; // Avaliações negativas (Ruim)
+  likedBy: string[]; // Lista de quem achou 'Bom'
+  dislikedBy: string[]; // Lista de quem achou 'Ruim'
+  creatorId: string;
+  creatorName: string;
+  creatorPhoto?: string;
+  commentCount: number;
+  createdAt: any;
+}
+
+export interface SummaryComment {
+  id: string;
+  summaryId: string;
+  senderId: string;
+  senderName: string;
+  senderPhoto?: string;
+  text: string;
+  createdAt: any;
+}
+
+

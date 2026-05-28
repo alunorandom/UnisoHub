@@ -1,10 +1,196 @@
 {
-  "projectId": "gen-lang-client-0096510958",
-  "appId": "1:621643937632:web:51355a2b47ab3d86a55005",
-  "apiKey": "AIzaSyAyIgNxWla_pVeLupTbGOuKveY8ZbcmENc",
-  "authDomain": "gen-lang-client-0096510958.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-2145d123-7d39-474a-8735-c509bad5ee0b",
-  "storageBucket": "gen-lang-client-0096510958.firebasestorage.app",
-  "messagingSenderId": "621643937632",
-  "measurementId": ""
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Perfil do aluno com habilidades e pontos fortes.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "bio": { "type": "string" },
+        "skills": { "type": "string" },
+        "strengths": { "type": "string" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["uid", "name", "email"]
+    },
+    "Class": {
+      "title": "Subject Class",
+      "description": "Sala de uma matéria específica.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "code"]
+    },
+    "Group": {
+      "title": "Study Group",
+      "description": "Grupo de trabalho dentro de uma matéria.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "classId": { "type": "string" },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "members": { "type": "array", "items": { "type": "string" } },
+        "maxMembers": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "classId", "name", "creatorId", "members"]
+    },
+    "Application": {
+      "title": "Group Application",
+      "description": "Pedido de entrada em um grupo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupId": { "type": "string" },
+        "applicantId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "message": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "applicantId", "status"]
+    },
+    "Message": {
+      "title": "Chat Message",
+      "description": "Mensagem de texto do chat do grupo.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "groupId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "groupId", "senderId", "text"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Quiz criado por um professor com perguntas de múltipla escolha.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "classId": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "questions": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "classId", "creatorId", "questions"]
+    },
+    "QuizSubmission": {
+      "title": "Quiz Submission",
+      "description": "Submissão de respostas de um aluno para um quiz.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "quizId": { "type": "string" },
+        "studentId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "answers": { "type": "array" },
+        "score": { "type": "number" },
+        "totalQuestions": { "type": "number" },
+        "submittedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "quizId", "studentId", "answers", "score", "totalQuestions"]
+    },
+    "ForumTopic": {
+      "title": "Forum Topic",
+      "description": "Dúvida/pergunta criada por um aluno no fórum.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "creatorPhoto": { "type": "string" },
+        "classId": { "type": "string" },
+        "className": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "likedBy": { "type": "array", "items": { "type": "string" } },
+        "replyCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "description", "creatorId", "creatorName", "likesCount", "likedBy", "replyCount"]
+    },
+    "ForumReply": {
+      "title": "Forum Reply",
+      "description": "Resposta a uma dúvida no fórum.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "topicId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderPhoto": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "topicId", "senderId", "senderName", "text"]
+    },
+    "AcademicSummary": {
+      "title": "Academic Summary",
+      "description": "Resumo de matéria com documento PDF anexado, com comentários e votações.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "pdfUrl": { "type": "string" },
+        "pdfName": { "type": "string" },
+        "pdfSize": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "subjectName": { "type": "string" },
+        "likesCount": { "type": "number" },
+        "dislikesCount": { "type": "number" },
+        "likedBy": { "type": "array", "items": { "type": "string" } },
+        "dislikedBy": { "type": "array", "items": { "type": "string" } },
+        "creatorId": { "type": "string" },
+        "creatorName": { "type": "string" },
+        "creatorPhoto": { "type": "string" },
+        "commentCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "subjectId", "subjectName", "likesCount", "dislikesCount", "likedBy", "dislikedBy", "creatorId", "creatorName", "commentCount"]
+    },
+    "SummaryComment": {
+      "title": "Summary Comment",
+      "description": "Comentário sobre um resumo acadêmico.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "summaryId": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "senderPhoto": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "summaryId", "senderId", "senderName", "text"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": { "schema": "User", "description": "Perfis de usuários." },
+    "/classes/{classId}": { "schema": "Class", "description": "Salas de matérias." },
+    "/groups/{groupId}": { "schema": "Group", "description": "Grupos de trabalho." },
+    "/applications/{appId}": { "schema": "Application", "description": "Pedidos de entrada." },
+    "/messages/{msgId}": { "schema": "Message", "description": "Mensagens do chat." },
+    "/quizzes/{quizId}": { "schema": "Quiz", "description": "Quizzes criados por professores." },
+    "/quizSubmissions/{submissionId}": { "schema": "QuizSubmission", "description": "Respostas dos alunos para os quizzes." },
+    "/forumTopics/{topicId}": { "schema": "ForumTopic", "description": "Tópicos de dúvidas no fórum." },
+    "/forumReplies/{replyId}": { "schema": "ForumReply", "description": "Respostas aos tópicos no fórum/dúvidas." },
+    "/academicSummaries/{summaryId}": { "schema": "AcademicSummary", "description": "Resumos acadêmicos enviados pelos alunos." },
+    "/summaryComments/{commentId}": { "schema": "SummaryComment", "description": "Comentários sobre resumos acadêmicos." }
+  }
 }
