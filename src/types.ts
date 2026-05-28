@@ -4,6 +4,15 @@ export interface RPGStat {
   icon: string;
 }
 
+export interface UserMedal {
+  id: string;
+  title: string;
+  description: string;
+  icon: string; // Emoji de medalha/troféu
+  quizTitle: string;
+  awardedAt?: any;
+}
+
 export interface UserProfile {
   uid: string;
   name: string;
@@ -16,6 +25,7 @@ export interface UserProfile {
   rpgStats?: RPGStat[];
   rpgSkills?: RPGStat[];
   isProfessor?: boolean;
+  medals?: UserMedal[];
 }
 
 export interface ClassRoom {

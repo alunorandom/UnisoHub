@@ -577,6 +577,40 @@ const Profile = ({ user, profile, setProfile }: { user: any, profile: UserProfil
                   </div>
                 </div>
               </div>
+
+              {/* Medalhas & Conquistas */}
+              <div className="space-y-4 pt-6 border-t border-gray-100 dark:border-zinc-800">
+                <h3 className="text-xs font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                  <Trophy className="h-4 w-4" /> Medalhas & Conquistas Personalizadas
+                </h3>
+                {profile?.medals && profile.medals.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {profile.medals.map((medal, mIdx) => (
+                      <motion.div
+                        key={medal.id || mIdx}
+                        whileHover={{ scale: 1.02 }}
+                        className="bg-gradient-to-br from-amber-50/10 to-yellow-50/20 dark:from-zinc-800/40 dark:to-yellow-905/5 border border-amber-100 dark:border-yellow-950/20 p-4 rounded-2xl flex gap-3 shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-amber-500/10 to-transparent rounded-bl-full pointer-events-none" />
+                        <div className="text-3xl flex items-center justify-center bg-white dark:bg-zinc-800 rounded-xl w-12 h-12 shrink-0 shadow-sm border border-amber-100/50 dark:border-zinc-700">
+                          {medal.icon || '🏅'}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="font-extrabold text-sm text-yellow-850 dark:text-yellow-400 truncate">{medal.title}</h4>
+                          <p className="text-xs text-gray-500 dark:text-gray-400 leading-tight mt-0.5 line-clamp-2">{medal.description}</p>
+                          <p className="text-[10px] text-gray-400 dark:text-gray-500 font-bold mt-1.5 uppercase tracking-wider block">
+                            Quiz: <span className="text-gray-600 dark:text-gray-300">{medal.quizTitle}</span>
+                          </p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="bg-gray-50 dark:bg-zinc-850/50 p-6 rounded-2xl text-center text-sm font-medium text-gray-400 dark:text-gray-500 border border-dashed border-gray-200 dark:border-zinc-800">
+                    Nenhuma medalha conquistada nesta jornada de masmorra ainda. Complete quizzes com recompensa de medalha para ganhar as suas!
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -591,6 +625,15 @@ interface QuizQuestion {
   correctOptionIndex: number;
 }
 
+interface QuizReward {
+  type: 'none' | 'attribute' | 'medal';
+  attributeName?: string;
+  attributeValue?: number;
+  medalTitle?: string;
+  medalDescription?: string;
+  medalIcon?: string;
+}
+
 interface Quiz {
   id: string;
   title: string;
@@ -599,6 +642,8 @@ interface Quiz {
   creatorId: string;
   creatorName: string;
   questions: QuizQuestion[];
+  timeLimit?: number; // tempo em segundos por pergunta, 0 = sem tempo
+  reward?: QuizReward;
   createdAt: any;
 }
 
@@ -613,7 +658,7 @@ interface QuizSubmission {
   submittedAt: any;
 }
 
-const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) => {
+const Quizzes = ({ user, profile, setProfile }: { user: any; profile: UserProfile | null; setProfile: any }) => {
   const [quizzes, setQuizzes] = useState<Quiz[]>([]);
   const [submissions, setSubmissions] = useState<QuizSubmission[]>([]);
   const [classes, setClasses] = useState<ClassRoom[]>([]);
@@ -624,6 +669,15 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
   const [quizDescription, setQuizDescription] = useState('');
   const [quizClassId, setQuizClassId] = useState('');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
+
+  // Creation reward and time details
+  const [timeLimit, setTimeLimit] = useState(0); // 0 = sem tempo, seconds per question
+  const [rewardType, setRewardType] = useState<'none' | 'attribute' | 'medal'>('none');
+  const [rewardAttr, setRewardAttr] = useState('Foco e Estudo');
+  const [rewardValue, setRewardValue] = useState(1);
+  const [medalTitle, setMedalTitle] = useState('');
+  const [medalDescription, setMedalDescription] = useState('');
+  const [medalIcon, setMedalIcon] = useState('🥇');
   
   // Single question form states
   const [questionText, setQuestionText] = useState('');
@@ -639,6 +693,9 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
   const [currentQuestIndex, setCurrentQuestIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState<number | null>(null);
   const [quizResult, setQuizResult] = useState<{ score: number; total: number } | null>(null);
+
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [rewardClaimed, setRewardClaimed] = useState<{ title: string; desc: string; icon: string; isNew: boolean } | null>(null);
 
   // Expanded panel state
   const [expandedQuizId, setExpandedQuizId] = useState<string | null>(null);
@@ -743,6 +800,15 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
         creatorId: user.uid,
         creatorName: profile?.name || 'Professor',
         questions: questions,
+        timeLimit: Number(timeLimit) || 0,
+        reward: {
+          type: rewardType,
+          attributeName: rewardType === 'attribute' ? rewardAttr : '',
+          attributeValue: rewardType === 'attribute' ? Number(rewardValue) : 1,
+          medalTitle: rewardType === 'medal' ? medalTitle : '',
+          medalDescription: rewardType === 'medal' ? medalDescription : '',
+          medalIcon: rewardType === 'medal' ? medalIcon : '🥇'
+        },
         createdAt: new Date()
       });
 
@@ -751,6 +817,13 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
       setQuizDescription('');
       setQuizClassId('');
       setQuestions([]);
+      setTimeLimit(0);
+      setRewardType('none');
+      setRewardAttr('Foco e Estudo');
+      setRewardValue(1);
+      setMedalTitle('');
+      setMedalDescription('');
+      setMedalIcon('🥇');
       setShowCreate(false);
       alert('Quiz criado com sucesso!');
     } catch (err) {
@@ -765,14 +838,18 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
     setCurrentAnswers([]);
     setSelectedOpt(null);
     setQuizResult(null);
+    setRewardClaimed(null);
   };
 
-  const handleNextQuestion = () => {
-    if (selectedOpt === null) {
+  const handleNextQuestion = (forcedOptionIdx?: number) => {
+    const answer = forcedOptionIdx !== undefined ? forcedOptionIdx : selectedOpt;
+    if (answer === null) {
       alert('Selecione uma alternativa antes de prosseguir!');
       return;
     }
-    const updatedAnswers = [...currentAnswers, selectedOpt];
+    
+    const finalAnswer = answer;
+    const updatedAnswers = [...currentAnswers, finalAnswer];
     setCurrentAnswers(updatedAnswers);
     setSelectedOpt(null);
 
@@ -788,7 +865,69 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
       });
 
       const total = activeQuiz?.questions.length || 0;
-      
+      const passThreshold = Math.ceil(total * 0.6); // 60% standard approval rate
+      const passed = correctCount >= passThreshold;
+
+      if (passed && activeQuiz.reward && activeQuiz.reward.type !== 'none' && profile) {
+        const rewardedQuizzes = (profile as any).rewardedQuizIds || [];
+        if (!rewardedQuizzes.includes(activeQuiz.id)) {
+          const newRewardedList = [...rewardedQuizzes, activeQuiz.id];
+          let updatedProfile = { ...profile, rewardedQuizIds: newRewardedList };
+
+          if (activeQuiz.reward.type === 'attribute' && activeQuiz.reward.attributeName) {
+            const attrName = activeQuiz.reward.attributeName;
+            const attrVal = activeQuiz.reward.attributeValue || 1;
+            const stats = [...(profile.rpgStats || DEFAULT_STATS)];
+            const idxAttr = stats.findIndex(s => s.name.toLowerCase() === attrName.toLowerCase());
+            if (idxAttr >= 0) {
+              stats[idxAttr] = { ...stats[idxAttr], value: Math.min(10, stats[idxAttr].value + attrVal) };
+            } else {
+              stats.push({ name: attrName, value: attrVal, icon: 'Shield' });
+            }
+            updatedProfile.rpgStats = stats;
+            setRewardClaimed({
+              title: 'Atributo Aumentado! ⚡',
+              desc: `Você ganhou +${attrVal} em "${attrName}" por concluir esta masmorra com louvor!`,
+              icon: '⚡',
+              isNew: true
+            });
+          } else if (activeQuiz.reward.type === 'medal' && activeQuiz.reward.medalTitle) {
+            const mTitle = activeQuiz.reward.medalTitle;
+            const mDesc = activeQuiz.reward.medalDescription || 'Conquistada por sua maestria.';
+            const mIcon = activeQuiz.reward.medalIcon || '🥇';
+            const medals = [...(profile.medals || [])];
+            medals.push({
+              id: activeQuiz.id,
+              title: mTitle,
+              description: mDesc,
+              icon: mIcon,
+              quizTitle: activeQuiz.title,
+              awardedAt: new Date()
+            });
+            updatedProfile.medals = medals;
+            setRewardClaimed({
+              title: 'Medalha Desbloqueada! 🏆',
+              desc: `A canônica medalha "${mIcon} ${mTitle}" foi forjada em seu altar de conquistas e inserida ao seu Perfil!`,
+              icon: mIcon,
+              isNew: true
+            });
+          }
+
+          localStorage.setItem('unisohub_profile', JSON.stringify(updatedProfile));
+          setProfile(updatedProfile);
+          setDoc(doc(db, 'users', user.uid), updatedProfile).catch(err => console.warn(err));
+        } else {
+          setRewardClaimed({
+            title: 'Desafio Superado',
+            desc: 'Bom trabalho! As recompensas e ornamentos deste quiz já residem em seus aposentos no perfil.',
+            icon: '✔',
+            isNew: false
+          });
+        }
+      } else {
+        setRewardClaimed(null);
+      }
+
       // Submit submission to Firestore
       addDoc(collection(db, 'quizSubmissions'), {
         quizId: activeQuiz?.id,
@@ -803,6 +942,33 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
       setQuizResult({ score: correctCount, total });
     }
   };
+
+  // Timer effects
+  useEffect(() => {
+    if (!activeQuiz || quizResult || !activeQuiz.timeLimit || activeQuiz.timeLimit <= 0) {
+      return;
+    }
+    setTimeLeft(activeQuiz.timeLimit);
+  }, [currentQuestIndex, activeQuiz, quizResult]);
+
+  useEffect(() => {
+    if (!activeQuiz || quizResult || !activeQuiz.timeLimit || activeQuiz.timeLimit <= 0) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          handleNextQuestion(-1); // Automatically submit timed-out/unanswered
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [currentQuestIndex, activeQuiz, quizResult, selectedOpt, currentAnswers]);
 
   const userSubmissions = submissions.filter(s => s.studentId === user.uid);
 
@@ -830,9 +996,33 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
 
             {!quizResult ? (
               <div>
-                <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full">
-                  Questão {currentQuestIndex + 1} de {activeQuiz.questions.length}
-                </span>
+                <div className="flex justify-between items-center mb-4">
+                  <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-xs font-black uppercase tracking-widest px-3 py-1 rounded-full">
+                    Questão {currentQuestIndex + 1} de {activeQuiz.questions.length}
+                  </span>
+                  {activeQuiz.timeLimit && activeQuiz.timeLimit > 0 ? (
+                    <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/20 px-3 py-1 rounded-xl border border-red-100 dark:border-red-950/30 animate-pulse">
+                      <Zap className="h-3.5 w-3.5 text-red-500" />
+                      <span className="text-xs font-black text-red-650 dark:text-red-400 font-mono">
+                        Tempo Restante: {timeLeft}s
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs font-bold text-gray-400">∞ Modo Treino</span>
+                  )}
+                </div>
+
+                {activeQuiz.timeLimit && activeQuiz.timeLimit > 0 && (
+                  <div className="w-full h-1.5 bg-gray-100 dark:bg-zinc-800 rounded-full overflow-hidden mb-6">
+                    <motion.div
+                      key={currentQuestIndex + '_' + timeLeft}
+                      initial={{ width: `${(timeLeft / activeQuiz.timeLimit) * 100}%` }}
+                      animate={{ width: 0 }}
+                      transition={{ duration: timeLeft, ease: "linear" }}
+                      className="h-full bg-gradient-to-r from-red-500 to-amber-500 rounded-full"
+                    />
+                  </div>
+                )}
 
                 <h2 className="text-2xl font-black mt-4 text-black dark:text-white leading-tight">
                   {activeQuiz.questions[currentQuestIndex].questionText}
@@ -895,6 +1085,30 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                     Aproveitamento de {Math.round((quizResult.score / quizResult.total) * 100)}%
                   </p>
                 </div>
+
+                {rewardClaimed && (
+                  <motion.div 
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    className="bg-gradient-to-br from-yellow-500/10 via-amber-500/5 to-transparent border border-yellow-500/30 p-5 rounded-2xl max-w-sm mx-auto relative overflow-hidden text-center shadow-lg"
+                  >
+                    <div className="absolute top-0 right-0 p-8 bg-amber-500/10 rounded-full -mr-8 -mt-8 pointer-events-none" />
+                    <div className="text-4xl mb-2 animate-bounce inline-block">
+                      {rewardClaimed.icon}
+                    </div>
+                    <h4 className="font-extrabold text-amber-600 dark:text-amber-400 text-base uppercase tracking-tight">
+                      {rewardClaimed.title}
+                    </h4>
+                    <p className="text-xs text-gray-600 dark:text-gray-300 font-bold leading-relaxed mt-1">
+                      {rewardClaimed.desc}
+                    </p>
+                    {rewardClaimed.isNew && (
+                      <span className="inline-block mt-3 bg-yellow-400 text-black text-[9px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider animate-pulse">
+                        Adicionado ao seu Perfil!
+                      </span>
+                    )}
+                  </motion.div>
+                )}
 
                 <button
                   onClick={handleCloseQuiz}
@@ -990,6 +1204,121 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                 value={quizDescription}
                 onChange={e => setQuizDescription(e.target.value)}
               />
+            </div>
+
+            {/* Customização da Masmorra: Tempo e Recompensas */}
+            <div className="bg-purple-50/25 dark:bg-purple-950/5 p-6 rounded-2xl border border-purple-100 dark:border-purple-950/40 space-y-4">
+              <h3 className="text-xs font-black text-purple-600 dark:text-purple-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Zap className="h-4 w-4" /> Customização do Desafio (Tempo & Recompensa)
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">⏱️ Tempo Limite por Pergunta</label>
+                  <select
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-black dark:text-white font-bold text-sm"
+                    value={timeLimit}
+                    onChange={e => setTimeLimit(Number(e.target.value))}
+                  >
+                    <option value={0}>∞ Sem tempo limite (Modo Treino)</option>
+                    <option value={10}>10 Segundos por questão</option>
+                    <option value={15}>15 Segundos por questão</option>
+                    <option value={20}>20 Segundos por questão</option>
+                    <option value={30}>30 Segundos por questão</option>
+                    <option value={45}>45 Segundos por questão</option>
+                    <option value={60}>60 Segundos (1 Minuto) por questão</option>
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1 font-bold">O cronômetro reinicia a cada questão disponível.</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase tracking-wider mb-2">🎁 Espólios de Vitória (Recompensa)</label>
+                  <select
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-black dark:text-white font-bold text-sm"
+                    value={rewardType}
+                    onChange={e => setRewardType(e.target.value as any)}
+                  >
+                    <option value="none">Nenhum (Apenas XP básico)</option>
+                    <option value="attribute">Pontos de Atributo RPG (Fortalecer Stats)</option>
+                    <option value="medal">Medalha de Honra Personalizada (Altar de Perfil)</option>
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1 font-bold">Concedido a alunos que acertarem no mínimo 60% do quiz.</p>
+                </div>
+              </div>
+
+              {/* Condicional de Recompensa de atributos */}
+              {rewardType === 'attribute' && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-purple-100/40 dark:border-purple-950/30 animate-pulse">
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">Atributo RPG a Fortalecer</label>
+                    <select
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-bold text-black dark:text-white"
+                      value={rewardAttr}
+                      onChange={e => setRewardAttr(e.target.value)}
+                    >
+                      <option value="Foco e Estudo">📘 Foco e Estudo</option>
+                      <option value="Gestão de Tempo">⚡ Gestão de Tempo</option>
+                      <option value="Raciocínio Crítico">🧠 Raciocínio Crítico</option>
+                      <option value="Trabalho em Equipe">👥 Trabalho em Equipe</option>
+                      <option value="Resiliência (Café)">🔥 Resiliência (Café)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1.5">Valor do Bônus</label>
+                    <select
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-bold text-black dark:text-white"
+                      value={rewardValue}
+                      onChange={e => setRewardValue(Number(e.target.value))}
+                    >
+                      <option value={1}>+1 Ponto de Atributo</option>
+                      <option value={2}>+2 Pontos de Atributo</option>
+                      <option value={3}>+3 Pontos de Atributo (Épico)</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Condicional de Medalhas */}
+              {rewardType === 'medal' && (
+                <div className="space-y-3 pt-3 border-t border-purple-100/40 dark:border-purple-950/30">
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-[11px] font-bold text-gray-500 mb-1">Nome Honorífico da Medalha</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Soberano da Recursão, Campeão do SQL"
+                        required
+                        className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-semibold text-black dark:text-white"
+                        value={medalTitle}
+                        onChange={e => setMedalTitle(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-500 mb-1">Ornamento (Emoji)</label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 🥇, 🧙‍♂️, 💻, 🧠"
+                        required
+                        maxLength={4}
+                        className="w-full px-4 py-2.5 rounded-xl text-center border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-semibold text-black dark:text-white"
+                        value={medalIcon}
+                        onChange={e => setMedalIcon(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-gray-500 mb-1">Inscrição / Descrição da Medalha</label>
+                    <input
+                      type="text"
+                      placeholder="Concedida por dominar a arte de algoritmos de busca complexos sem pestanejar."
+                      required
+                      className="w-full px-4 py-2.5 rounded-xl border border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-black dark:text-white"
+                      value={medalDescription}
+                      onChange={e => setMedalDescription(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Questions created preview */}
@@ -1114,9 +1443,31 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                 >
                   <div className="space-y-3">
                     <div className="flex justify-between items-start gap-2">
-                      <span className="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
-                        {quizClassDoc?.name || 'Geral'}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full">
+                          {quizClassDoc?.name || 'Geral'}
+                        </span>
+                        {(profile?.isProfessor || q.creatorId === user.uid) && (
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              if (confirm('Deseja realmente excluir permanentemente este quiz? Todos os dados vinculados a ele serão perdidos.')) {
+                                try {
+                                  await deleteDoc(doc(db, 'quizzes', q.id));
+                                  alert('Quiz excluído com sucesso!');
+                                } catch (err) {
+                                  console.error(err);
+                                  alert('Erro ao excluir o quiz.');
+                                }
+                              }
+                            }}
+                            title="Excluir Quiz"
+                            className="bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/40 text-red-605 dark:text-red-400 p-1 rounded-lg border border-red-100 dark:border-red-950/30 transition-all flex items-center justify-center shrink-0"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                       {hasTaken ? (
                         <span className="bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full flex items-center gap-1">
                           <Check className="h-2.5 w-2.5" /> Nota: {hasTaken.score}/{hasTaken.totalQuestions}
@@ -1133,6 +1484,25 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                       <p className="text-gray-400 text-[11px] font-bold mt-1 uppercase tracking-wider">
                         Criado por: {q.creatorName} ({q.questions?.length || 0} desafios)
                       </p>
+                      
+                      {/* Custom badges for timer and rewards */}
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {q.timeLimit && q.timeLimit > 0 ? (
+                          <span className="bg-red-50 dark:bg-red-950/20 text-red-650 dark:text-red-400 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md flex items-center gap-1 border border-red-105/30">
+                            ⏱️ {q.timeLimit}s / questão
+                          </span>
+                        ) : (
+                          <span className="bg-gray-50 dark:bg-zinc-850 text-gray-450 dark:text-gray-400 text-[9px] font-black px-2 py-0.5 rounded-md flex items-center gap-1">
+                            ∞ Modo Treino
+                          </span>
+                        )}
+                        
+                        {q.reward && q.reward.type !== 'none' && (
+                          <span className="bg-yellow-50 dark:bg-yellow-950/25 text-amber-600 dark:text-yellow-500 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md flex items-center gap-1 border border-yellow-500/10">
+                            🎁 Concede: {q.reward.type === 'attribute' ? `+${q.reward.attributeValue} ${q.reward.attributeName}` : `${q.reward.medalIcon || '🥇'} ${q.reward.medalTitle}`}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {q.description && (
@@ -1156,13 +1526,23 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                         >
                           {hasTaken ? "Responder Novamente" : "Resolver Desafio"}
                         </button>
-                        <button
-                          onClick={() => setQrModalQuiz(q)}
-                          className="w-full text-center py-2.5 rounded-xl text-xs font-black bg-gray-50 dark:bg-zinc-800/80 hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-650 dark:text-gray-350 border border-gray-200 dark:border-zinc-700/60 transition-all flex items-center justify-center gap-1.5"
-                        >
-                          <QrCode className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                          <span>Gerar QR Code de Acesso</span>
-                        </button>
+                        
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          <button
+                            onClick={() => setExpandedQuizId(expandedQuizId === q.id ? null : q.id)}
+                            className="text-center py-2.5 rounded-xl text-xs font-black bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-zinc-800/80 hover:opacity-90 transition-all flex items-center justify-center gap-1"
+                          >
+                            <Trophy className="h-3.5 w-3.5" />
+                            <span>{expandedQuizId === q.id ? "Fechar Ranking" : "🏆 Ver Ranking"}</span>
+                          </button>
+                          <button
+                            onClick={() => setQrModalQuiz(q)}
+                            className="text-center py-2.5 rounded-xl text-xs font-black bg-gray-50 dark:bg-zinc-800/80 hover:bg-gray-100 dark:hover:bg-zinc-800 text-gray-650 dark:text-gray-350 border border-gray-200 dark:border-zinc-700/60 transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <QrCode className="h-4 w-4 text-blue-600" />
+                            <span>QR Code</span>
+                          </button>
+                        </div>
                       </div>
                     ) : (
                       <div className="space-y-2">
@@ -1171,7 +1551,7 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                             onClick={() => setExpandedQuizId(expandedQuizId === q.id ? null : q.id)}
                             className="w-full text-center py-2.5 rounded-xl text-xs font-black bg-purple-100 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:opacity-90 transition-all block"
                           >
-                            {expandedQuizId === q.id ? "Fechar Notas" : "Ver Notas"}
+                            {expandedQuizId === q.id ? "Fechar Notas" : "🏆 Ver Notas & Rank"}
                           </button>
                           <button
                             onClick={() => setQrModalQuiz(q)}
@@ -1181,24 +1561,127 @@ const Quizzes = ({ user, profile }: { user: any; profile: UserProfile | null }) 
                             <span>QR Code</span>
                           </button>
                         </div>
+                      </div>
+                    )}
 
-                        {expandedQuizId === q.id && (
-                          <div className="bg-purple-50/30 dark:bg-purple-950/20 p-4 rounded-2xl border border-purple-100/50 dark:border-purple-900/20 mt-2 space-y-2 text-xs">
-                            <p className="font-black text-purple-600 uppercase tracking-widest text-[9px]">Histórico de Submissões</p>
+                    {/* Unified Leaderboards/Highscores Expansion block */}
+                    {expandedQuizId === q.id && (
+                      <div className="bg-gray-50 dark:bg-zinc-800/30 p-4 rounded-2xl border border-gray-200/60 dark:border-zinc-800 mt-2 space-y-4 text-xs">
+                        {/* Ranking Leaderboard on-the-fly */}
+                        <div className="space-y-2">
+                          <p className="font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest text-[9px] flex items-center gap-1">
+                            <Trophy className="h-3 w-3" /> Quadro Geral de Líderes (Rankings)
+                          </p>
+                          {(() => {
+                            const quizSubs = submissions.filter(s => s.quizId === q.id);
+                            const userBest: { [uid: string]: { score: number; studentName: string; count: number; date: Date } } = {};
+                            
+                            quizSubs.forEach(sub => {
+                              const uid = sub.studentId;
+                              const subScore = sub.score;
+                              const subDate = sub.submittedAt ? (typeof sub.submittedAt.toDate === 'function' ? sub.submittedAt.toDate() : new Date(sub.submittedAt)) : new Date();
+                              
+                              if (!userBest[uid] || subScore > userBest[uid].score) {
+                                userBest[uid] = { score: subScore, studentName: sub.studentName, count: 1, date: subDate };
+                              } else {
+                                userBest[uid].count += 1;
+                              }
+                            });
+
+                            const rankingList = Object.entries(userBest)
+                              .map(([uid, info]) => ({ studentId: uid, ...info }))
+                              .sort((a, b) => b.score - a.score || a.date.getTime() - b.date.getTime());
+
+                            if (rankingList.length === 0) {
+                              return <p className="text-gray-400 font-bold py-1">Nenhum guerreiro conquistou este quiz ainda.</p>;
+                            }
+
+                            return (
+                              <div className="space-y-1.5 pt-1">
+                                {rankingList.map((rank, rIdx) => {
+                                  let medalBadge = <span className="text-gray-400 font-mono font-bold w-5 block text-center">#{rIdx + 1}</span>;
+                                  let bgStyle = "bg-white dark:bg-zinc-900 border border-gray-100 dark:border-zinc-800/80";
+                                  
+                                  if (rIdx === 0) {
+                                    medalBadge = <span className="text-base w-5 block text-center">🥇</span>;
+                                    bgStyle = "bg-amber-500/10 border border-yellow-500/30 text-amber-900 dark:text-yellow-400";
+                                  } else if (rIdx === 1) {
+                                    medalBadge = <span className="text-base w-5 block text-center">🥈</span>;
+                                    bgStyle = "bg-slate-300/20 border border-slate-300/40 text-slate-800 dark:text-slate-300";
+                                  } else if (rIdx === 2) {
+                                    medalBadge = <span className="text-base w-5 block text-center">🥉</span>;
+                                    bgStyle = "bg-amber-600/10 border border-amber-600/30 text-amber-800 dark:text-amber-500";
+                                  }
+
+                                  return (
+                                    <div key={rank.studentId} className={cn("p-2.5 rounded-xl flex items-center justify-between font-bold", bgStyle)}>
+                                      <div className="flex items-center gap-2">
+                                        {medalBadge}
+                                        <span className="text-black dark:text-gray-200">{rank.studentName}</span>
+                                        {rank.studentId === user.uid && (
+                                          <span className="bg-blue-600 text-white text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-wider">VOCÊ</span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2.5">
+                                        <span className="text-[10px] text-gray-400 font-medium">({rank.count} {rank.count === 1 ? 'tentativa' : 'tentativas'})</span>
+                                        <span className="font-black text-xs px-2 py-0.5 rounded bg-black/5 dark:bg-white/10 text-gray-800 dark:text-gray-200">
+                                          {rank.score} / {q.questions?.length || 0}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </div>
+
+                        {/* Chronological submittals list only for teacher */}
+                        {profile?.isProfessor && (
+                          <div className="pt-3 border-t border-gray-200 dark:border-zinc-800 space-y-2">
+                            <p className="font-black text-purple-600 uppercase tracking-widest text-[9px] flex items-center gap-1.5">
+                              <Shield className="h-3.5 w-3.5" /> Histórico Completo de Submissões (Foco Professor)
+                            </p>
                             {submissions.filter(s => s.quizId === q.id).length === 0 ? (
-                              <p className="text-gray-404 font-bold py-1">Nenhum aluno submeteu ainda.</p>
+                              <p className="text-gray-400 font-bold py-1">Nenhum aluno submeteu ainda.</p>
                             ) : (
-                              <div className="space-y-1.5 pt-1.5">
-                                {submissions.filter(s => s.quizId === q.id).map(s => (
-                                  <div key={s.id} className="flex justify-between items-center py-1 border-b border-gray-100 dark:border-zinc-800 last:border-0">
-                                    <span className="font-extrabold text-black dark:text-gray-200">{s.studentName}</span>
-                                    <span className="font-black bg-purple-100/50 dark:bg-purple-900/40 text-purple-600 dark:text-purple-400 px-2 py-0.5 rounded">
-                                      {s.score} / {s.totalQuestions}
-                                    </span>
-                                  </div>
-                                ))}
+                              <div className="space-y-1 max-h-40 overflow-y-auto">
+                                {submissions.filter(s => s.quizId === q.id).map(s => {
+                                  const dateVal = s.submittedAt ? (typeof s.submittedAt.toDate === 'function' ? s.submittedAt.toDate() : new Date(s.submittedAt)) : new Date();
+                                  return (
+                                    <div key={s.id} className="flex justify-between items-center py-1.5 px-2 bg-gray-100/40 dark:bg-zinc-800/40 rounded-lg text-[10px] font-bold">
+                                      <span className="text-gray-700 dark:text-zinc-300">{s.studentName}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-gray-400 text-[9px]">{dateVal.toLocaleDateString()} {dateVal.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                        <span className="bg-purple-100 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 rounded font-black">
+                                          {s.score} / {s.totalQuestions}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
+
+                            {/* Dungeon delete button for professor */}
+                            <div className="pt-3 border-t border-gray-200/50 dark:border-zinc-800/80 flex justify-end">
+                              <button
+                                onClick={async () => {
+                                  if (confirm('Deseja realmente demolir e excluir permanentemente esta masmorra de desafios? Todos os dados associados sumirão.')) {
+                                    try {
+                                      await deleteDoc(doc(db, 'quizzes', q.id));
+                                      alert('Masmorra de conhecimento demolida com êxito!');
+                                    } catch (err) {
+                                      console.error(err);
+                                      alert('Incapaz de excluir masmorra.');
+                                    }
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-red-650/10 hover:bg-red-650 text-red-500 hover:text-white border border-red-500/20 text-[10px] font-bold rounded-lg transition-all flex items-center gap-1"
+                              >
+                                <Trash2 className="h-3 w-3" /> Excluir Masmorra (Professor)
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -3816,7 +4299,7 @@ export default function App() {
               <Route path="/profile" element={user ? <Profile user={user} profile={profile} setProfile={setProfile} /> : <Navigate to="/" />} />
               <Route path="/classes" element={user ? <Classes user={user} profile={profile} /> : <Navigate to="/" />} />
               <Route path="/my-groups" element={user ? <MyGroups user={user} /> : <Navigate to="/" />} />
-              <Route path="/quizzes" element={user ? <Quizzes user={user} profile={profile} /> : <Navigate to="/" />} />
+              <Route path="/quizzes" element={user ? <Quizzes user={user} profile={profile} setProfile={setProfile} /> : <Navigate to="/" />} />
               <Route path="/forum" element={user ? <Forum user={user} profile={profile} /> : <Navigate to="/" />} />
               <Route path="/summaries" element={user ? <Summaries user={user} profile={profile} /> : <Navigate to="/" />} />
               <Route path="/class/:classId" element={user ? <ClassDetail user={user} profile={profile} /> : <Navigate to="/" />} />
